@@ -1,3 +1,0 @@
-# Deny direct browser access to all data files
-Order deny,allow
-Deny from all

@@ -1,18 +1,13 @@
-# Root .htaccess — protect sensitive PHP files from direct access
-# and optionally redirect all traffic to index.php
+# .htaccess — Security rules for the bot root directory
 
-# Deny direct access to config
-<Files "config.php">
-    Order deny,allow
-    Deny from all
-</Files>
-
-# Deny access to bot classes
-<FilesMatch "^(Bot|Storage|Lang|Keyboards|Payments)\.php$">
+# Deny direct browser access to sensitive PHP files
+<FilesMatch "^(config|helpers|set_webhook)\.php$">
     Order deny,allow
     Deny from all
 </FilesMatch>
 
-# General settings
+# Prevent directory listings
 Options -Indexes
+
+# Hide server signature
 ServerSignature Off
