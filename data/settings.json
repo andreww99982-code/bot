@@ -1,0 +1,8 @@
+{
+    "bot_name": "Digital Shop",
+    "currency": "RUB",
+    "currency_symbol": "₽",
+    "min_deposit": 50,
+    "welcome_message_ru": "Добро пожаловать в наш магазин цифровых товаров!",
+    "welcome_message_en": "Welcome to our digital goods shop!"
+}
