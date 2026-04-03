@@ -29,7 +29,7 @@ define('ADMIN_LOGIN',    getenv('ADMIN_LOGIN')    ?: 'admin');
 
 // Admin panel password — store a bcrypt hash for production:
 //   php -r "echo password_hash('your_password', PASSWORD_DEFAULT);"
-define('ADMIN_PASSWORD', getenv('ADMIN_PASSWORD') ?: 'changeme123');
+define('ADMIN_PASSWORD', getenv('ADMIN_PASSWORD') ?: '');
 
 // PHP session name for admin panel
 define('ADMIN_SESSION_NAME', getenv('ADMIN_SESSION_NAME') ?: 'digital_shop_admin');

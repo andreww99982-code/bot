@@ -150,7 +150,7 @@ class Storage
     {
         $cats = self::getCategories();
         if (empty($cats)) return 1;
-        return max(array_keys($cats)) + 1;
+        return max(array_map('intval', array_keys($cats))) + 1;
     }
 
     // -------------------------------------------------------
@@ -184,7 +184,7 @@ class Storage
     {
         $prods = self::getProducts();
         if (empty($prods)) return 1;
-        return max(array_keys($prods)) + 1;
+        return max(array_map('intval', array_keys($prods))) + 1;
     }
 
     public static function getProductsByCategory(int $catId): array

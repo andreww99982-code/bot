@@ -16,16 +16,21 @@ $isLoggedIn = !empty($_SESSION['admin_logged_in']);
 if (isset($_POST['action']) && $_POST['action'] === 'login') {
     $login    = trim($_POST['login'] ?? '');
     $password = trim($_POST['password'] ?? '');
-    // Support both bcrypt hash (starts with $2y$) and plain text passwords
-    $passwordOk = (strncmp(ADMIN_PASSWORD, '$2y$', 4) === 0)
-        ? password_verify($password, ADMIN_PASSWORD)
-        : hash_equals(ADMIN_PASSWORD, $password);
-    if ($login === ADMIN_LOGIN && $passwordOk) {
-        $_SESSION['admin_logged_in'] = true;
-        header('Location: ' . $_SERVER['PHP_SELF']);
-        exit;
+    // Reject login if ADMIN_PASSWORD is not configured
+    if (ADMIN_PASSWORD === '') {
+        $loginError = 'Admin password not configured. Set the ADMIN_PASSWORD environment variable.';
+    } else {
+        // Support both bcrypt hash (starts with $2y$) and plain text passwords
+        $passwordOk = (strncmp(ADMIN_PASSWORD, '$2y$', 4) === 0)
+            ? password_verify($password, ADMIN_PASSWORD)
+            : hash_equals(ADMIN_PASSWORD, $password);
+        if ($login === ADMIN_LOGIN && $passwordOk) {
+            $_SESSION['admin_logged_in'] = true;
+            header('Location: ' . $_SERVER['PHP_SELF']);
+            exit;
+        }
+        $loginError = 'Invalid credentials.';
     }
-    $loginError = 'Invalid credentials.';
 }
 
 if (isset($_GET['logout'])) {
@@ -155,7 +160,7 @@ if ($action === 'save_product') {
             $rawBase  = pathinfo($origName, PATHINFO_FILENAME);
             $baseName = preg_replace('/[^a-zA-Z0-9_\-]/', '_', $rawBase);
             if ($baseName === '' || $baseName === '_') {
-                $baseName = 'file_' . time();
+                $baseName = 'file_' . uniqid();
             }
             $safeName = $baseName . '.' . $ext;
 

@@ -122,9 +122,11 @@ class Payments
         $baseUrl  = CRYPTOBOT_TESTNET ? 'https://testnet-pay.crypt.bot/api' : 'https://pay.crypt.bot/api';
         $endpoint = $baseUrl . '/createInvoice';
 
-        // CryptoBot works with crypto; map fiat to USDT roughly or use TON
+        // TODO: Before going to production you MUST implement a proper fiat→crypto
+        // exchange rate conversion. The current code passes the fiat amount directly
+        // as a USDT amount, which will result in incorrect invoice totals.
         $cryptoCurrency = 'USDT';
-        $cryptoAmount   = $amount; // In production: convert via exchange rate
+        $cryptoAmount   = $amount; // FIXME: replace with real exchange-rate conversion
 
         $params = [
             'asset'           => $cryptoCurrency,

@@ -37,7 +37,7 @@ if ($route === 'heleket' || strpos($requestUri, '/webhook/heleket') !== false) {
     if (HELEKET_API_KEY !== '') {
         $signature = $_SERVER['HTTP_X_HELEKET_SIGNATURE'] ?? '';
         $expected  = hash_hmac('sha256', $raw, HELEKET_API_KEY);
-        if (!hash_equals($expected, strtolower($signature))) {
+        if (!hash_equals($expected, $signature)) {
             TgBot::log('Heleket webhook: invalid signature');
             http_response_code(403);
             exit('Forbidden');
@@ -52,7 +52,7 @@ if ($route === 'cryptobot' || strpos($requestUri, '/webhook/cryptobot') !== fals
     $raw = file_get_contents('php://input');
     if (CRYPTOBOT_TOKEN !== '') {
         $cbHeader = $_SERVER['HTTP_CRYPTO_PAY_API_TOKEN'] ?? '';
-        if (!hash_equals(CRYPTOBOT_TOKEN, $cbHeader)) {
+        if (!hash_equals($cbHeader, CRYPTOBOT_TOKEN)) {
             TgBot::log('CryptoBot webhook: invalid token');
             http_response_code(403);
             exit('Forbidden');

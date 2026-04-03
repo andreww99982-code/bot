@@ -111,9 +111,9 @@ class TgBot
                 return;
             }
         }
-        // Cap log at 5 MB
+        // Rotate log when it reaches 5 MB
         if (file_exists($logFile) && filesize($logFile) >= 5 * 1024 * 1024) {
-            return;
+            @rename($logFile, $logFile . '.' . date('YmdHis') . '.bak');
         }
         $line = '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL;
         file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
