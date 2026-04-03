@@ -42,19 +42,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Handle file upload
             if (!empty($_FILES['product_file']['tmp_name'])) {
-                $ext      = pathinfo($_FILES['product_file']['name'], PATHINFO_EXTENSION);
+                $origName = $_FILES['product_file']['name'];
+                $ext      = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
                 $allowed  = ['zip','rar','7z','pdf','txt','jpg','jpeg','png','gif','mp3','mp4','xlsx','docx','csv'];
-                if (!in_array(strtolower($ext), $allowed)) {
+                $allowedMimes = [
+                    'zip'  => ['application/zip','application/x-zip-compressed'],
+                    'rar'  => ['application/x-rar-compressed','application/vnd.rar'],
+                    '7z'   => ['application/x-7z-compressed'],
+                    'pdf'  => ['application/pdf'],
+                    'txt'  => ['text/plain'],
+                    'jpg'  => ['image/jpeg'], 'jpeg' => ['image/jpeg'],
+                    'png'  => ['image/png'],
+                    'gif'  => ['image/gif'],
+                    'mp3'  => ['audio/mpeg','audio/mp3'],
+                    'mp4'  => ['video/mp4'],
+                    'xlsx' => ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+                    'docx' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+                    'csv'  => ['text/csv','text/plain'],
+                ];
+                if (!in_array($ext, $allowed)) {
                     $error = 'File type not allowed.';
-                } elseif ($_FILES['product_file']['size'] > 50 * 1024 * 1024) {
-                    $error = 'File must be under 50 MB.';
                 } else {
-                    $filename = 'product_' . $product['id'] . '_' . time() . '.' . $ext;
+                    // Validate actual MIME type
+                    $finfo    = new finfo(FILEINFO_MIME_TYPE);
+                    $mimeType = $finfo->file($_FILES['product_file']['tmp_name']);
+                    $validMimes = $allowedMimes[$ext] ?? [];
+                    if (!empty($validMimes) && !in_array($mimeType, $validMimes)) {
+                        $error = 'File MIME type does not match extension.';
+                    }
+                }
+                if (!$error && $_FILES['product_file']['size'] > 50 * 1024 * 1024) {
+                    $error = 'File must be under 50 MB.';
+                }
+                if (!$error) {
+                    // Build a safe filename: no user-controlled path components
+                    $safeId   = preg_replace('/[^0-9]/', '', (string)$product['id']);
+                    $filename = 'product_' . $safeId . '_' . time() . '.' . $ext;
                     $dest     = UPLOAD_DIR . '/' . $filename;
                     if (move_uploaded_file($_FILES['product_file']['tmp_name'], $dest)) {
                         // Remove old file if it exists
                         if (!empty($existing['file_path'])) {
-                            @unlink(UPLOAD_DIR . '/' . $existing['file_path']);
+                            $oldPath = realpath(UPLOAD_DIR . '/' . basename($existing['file_path']));
+                            if ($oldPath && str_starts_with($oldPath, realpath(UPLOAD_DIR))) {
+                                @unlink($oldPath);
+                            }
                         }
                         $product['file_path'] = $filename;
                     } else {

@@ -223,9 +223,15 @@ class Bot
     {
         if ($state === 'topup_amount') {
             $provider = $this->user['state_data']['provider'] ?? 'heleket';
-            $amount   = (float)str_replace(',', '.', $text);
             $settings = Storage::getSettings();
             $minTopup = (float)($settings['min_topup'] ?? 100);
+
+            $normalised = str_replace(',', '.', trim($text));
+            if (!is_numeric($normalised) || (float)$normalised <= 0) {
+                $this->sendMessage(Lang::get('topup_min', ['min' => $minTopup]));
+                return;
+            }
+            $amount = (float)$normalised;
 
             if ($amount < $minTopup) {
                 $this->sendMessage(Lang::get('topup_min', ['min' => $minTopup]));
@@ -537,9 +543,15 @@ class Bot
 
     private function sendDocument(string $filePath, string $caption = ''): ?array
     {
+        // Restrict path to UPLOAD_DIR to prevent traversal
+        $realPath   = realpath($filePath);
+        $realUpload = realpath(UPLOAD_DIR);
+        if ($realPath === false || $realUpload === false || !str_starts_with($realPath, $realUpload . DIRECTORY_SEPARATOR)) {
+            return null;
+        }
         $params = [
             'chat_id'  => $this->chatId,
-            'document' => new CURLFile($filePath),
+            'document' => new CURLFile($realPath),
         ];
         if ($caption) $params['caption'] = $caption;
         return self::apiCall('sendDocument', $params, false);

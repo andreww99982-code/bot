@@ -11,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'add_balance') {
         $uid    = (int)($_POST['user_id'] ?? 0);
         $amount = (float)str_replace(',', '.', $_POST['amount'] ?? '0');
-        if ($uid && $amount != 0) {
+        if ($uid && $amount !== 0.0) {
             Storage::addBalance($uid, $amount);
             $msg = 'Balance updated.';
         } else {

@@ -32,11 +32,13 @@ if (!is_array($update)) {
 
 // Log incoming update (optional, disable on high-traffic bots)
 $logFile = LOG_DIR . '/webhook.log';
-@file_put_contents(
-    $logFile,
-    date('Y-m-d H:i:s') . ' ' . $rawBody . "\n",
-    FILE_APPEND
-);
+if (!file_exists($logFile) || filesize($logFile) < 5 * 1024 * 1024) { // 5 MB cap
+    @file_put_contents(
+        $logFile,
+        date('Y-m-d H:i:s') . ' ' . $rawBody . "\n",
+        FILE_APPEND | LOCK_EX
+    );
+}
 
 $bot = new Bot($update);
 $bot->handle();
