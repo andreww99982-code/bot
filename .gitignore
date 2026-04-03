@@ -1,0 +1,22 @@
+# Ignore runtime/generated data but keep structure
+data/users.json
+data/orders.json
+data/topup_requests.json
+
+# Uploaded product files
+uploads/*
+!uploads/.htaccess
+!uploads/.gitkeep
+
+# Log files
+logs/*.log
+logs/*
+!logs/.htaccess
+!logs/.gitkeep
+
+# IDE/OS files
+.DS_Store
+*.DS_Store
+.idea/
+.vscode/
+*.swp
