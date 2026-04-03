@@ -121,8 +121,13 @@ class Handlers
         $minDeposit = (float)($settings['min_deposit'] ?? 50);
 
         if ($state === 'awaiting_topup_amount') {
-            $amount = (float)str_replace(',', '.', trim($text));
-            if ($amount < $minDeposit || !is_numeric(trim($text))) {
+            $trimmed = trim(str_replace(',', '.', $text));
+            if (!is_numeric($trimmed)) {
+                TgBot::sendMessage($chatId, Lang::get('topup_invalid_amount', $lang, $minDeposit));
+                return;
+            }
+            $amount = (float)$trimmed;
+            if ($amount < $minDeposit) {
                 TgBot::sendMessage($chatId, Lang::get('topup_invalid_amount', $lang, $minDeposit));
                 return;
             }
@@ -477,12 +482,17 @@ class Handlers
             TgBot::sendMessage($chatId, Lang::get('buy_success', $lang, htmlspecialchars($title)));
         }
 
-        // Deliver file
+        // Deliver file — validate path stays inside storage directory
         $filePath = $product['file_path'] ?? '';
         if ($filePath) {
-            $absPath = BASE_PATH . '/' . ltrim($filePath, '/');
-            if (file_exists($absPath)) {
-                $result = TgBot::sendDocument($chatId, $absPath, htmlspecialchars($product['title'] ?? ''));
+            $absPath  = BASE_PATH . '/' . ltrim($filePath, '/');
+            $realAbs  = realpath($absPath);
+            $realBase = realpath(BASE_PATH . '/storage');
+            // Normalize separators and ensure the resolved path is within storage/
+            $pathSafe = ($realAbs !== false && $realBase !== false
+                && strpos(str_replace('\\', '/', $realAbs), str_replace('\\', '/', $realBase)) === 0);
+            if ($pathSafe) {
+                $result = TgBot::sendDocument($chatId, $realAbs, htmlspecialchars($product['title'] ?? ''));
                 if ($result && isset($result['result']['document']['file_id'])) {
                     // Cache file_id for future deliveries
                     $product['tg_file_id'] = $result['result']['document']['file_id'];

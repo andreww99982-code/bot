@@ -103,7 +103,12 @@ class TgBot
     {
         $logFile = LOGS_PATH . '/bot.log';
         $dir = dirname($logFile);
-        if (!is_dir($dir)) mkdir($dir, 0755, true);
+        if (!is_dir($dir)) {
+            if (!mkdir($dir, 0755, true)) {
+                error_log("[TgBot] Failed to create log directory: $dir");
+                return;
+            }
+        }
         $line = '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL;
         file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
     }

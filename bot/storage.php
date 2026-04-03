@@ -23,10 +23,16 @@ class Storage
     {
         $dir = dirname($file);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            if (!mkdir($dir, 0755, true)) {
+                error_log("[Storage] Failed to create directory: $dir");
+                return;
+            }
         }
         $fh = fopen($file, 'c');
-        if (!$fh) return;
+        if (!$fh) {
+            error_log("[Storage] Failed to open file for writing: $file");
+            return;
+        }
         flock($fh, LOCK_EX);
         ftruncate($fh, 0);
         rewind($fh);

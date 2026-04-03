@@ -33,5 +33,8 @@ define('APP_URL', 'https://your-domain.com');
 // ADMIN PANEL
 // ============================================================
 define('ADMIN_LOGIN',        'admin');
-define('ADMIN_PASSWORD',     'changeme123');   // Change before deployment!
+// Store a bcrypt hash here for security:
+//   php -r "echo password_hash('your_password', PASSWORD_DEFAULT);"
+// Or leave as plain text for initial setup (change before production!)
+define('ADMIN_PASSWORD',     'changeme123');
 define('ADMIN_SESSION_NAME', 'digital_shop_admin');

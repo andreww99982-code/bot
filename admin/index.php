@@ -16,7 +16,11 @@ $isLoggedIn = !empty($_SESSION['admin_logged_in']);
 if (isset($_POST['action']) && $_POST['action'] === 'login') {
     $login    = trim($_POST['login'] ?? '');
     $password = trim($_POST['password'] ?? '');
-    if ($login === ADMIN_LOGIN && $password === ADMIN_PASSWORD) {
+    // Support both bcrypt hash (starts with $2y$) and plain text passwords
+    $passwordOk = (strncmp(ADMIN_PASSWORD, '$2y$', 4) === 0)
+        ? password_verify($password, ADMIN_PASSWORD)
+        : hash_equals(ADMIN_PASSWORD, $password);
+    if ($login === ADMIN_LOGIN && $passwordOk) {
         $_SESSION['admin_logged_in'] = true;
         header('Location: ' . $_SERVER['PHP_SELF']);
         exit;
@@ -124,12 +128,39 @@ if ($action === 'save_product') {
         $fileName = $existing['file_name'] ?? '';
 
         // Handle file upload
-        if (!empty($_FILES['product_file']['name'])) {
+        if (!empty($_FILES['product_file']['name']) && $_FILES['product_file']['error'] === UPLOAD_ERR_OK) {
+            $allowedExtensions = ['zip', 'rar', '7z', 'tar', 'gz', 'pdf', 'jpg', 'jpeg', 'png', 'gif', 'mp4', 'mp3', 'txt'];
+            $allowedMimes = [
+                'application/zip','application/x-rar-compressed','application/x-7z-compressed',
+                'application/x-tar','application/gzip','application/pdf',
+                'image/jpeg','image/png','image/gif',
+                'video/mp4','audio/mpeg','text/plain',
+                'application/octet-stream', // generic binary (zip/rar may report this)
+            ];
+            $origName = basename($_FILES['product_file']['name']);
+            $ext      = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+            if (!in_array($ext, $allowedExtensions, true)) {
+                $flash = 'File type not allowed. Allowed: ' . implode(', ', $allowedExtensions);
+                header('Location: ' . $_SERVER['PHP_SELF'] . '?page=products&flash=' . urlencode($flash));
+                exit;
+            }
+            // Validate MIME type of uploaded content
+            $finfo    = new finfo(FILEINFO_MIME_TYPE);
+            $mimeType = $finfo->file($_FILES['product_file']['tmp_name']);
+            if (!in_array($mimeType, $allowedMimes, true)) {
+                $flash = 'File MIME type not allowed: ' . htmlspecialchars($mimeType);
+                header('Location: ' . $_SERVER['PHP_SELF'] . '?page=products&flash=' . urlencode($flash));
+                exit;
+            }
+            $rawBase  = pathinfo($origName, PATHINFO_FILENAME);
+            $baseName = preg_replace('/[^a-zA-Z0-9_\-]/', '_', $rawBase);
+            if ($baseName === '' || $baseName === '_') {
+                $baseName = 'file_' . time();
+            }
+            $safeName = $baseName . '.' . $ext;
+
             $uploadDir = STORAGE_PATH . '/files/' . $id . '/';
             if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-
-            $origName = basename($_FILES['product_file']['name']);
-            $safeName = preg_replace('/[^a-zA-Z0-9._\-]/', '_', $origName);
             $destPath = $uploadDir . $safeName;
 
             if (move_uploaded_file($_FILES['product_file']['tmp_name'], $destPath)) {
