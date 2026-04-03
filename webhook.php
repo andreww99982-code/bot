@@ -88,6 +88,11 @@ function handleUpdate(array $update): void
         return;
     }
 
+    if (str_starts_with($text, '/help')) {
+        handleHelp($chatId);
+        return;
+    }
+
     if (str_starts_with($text, '/')) {
         // Unknown command
         handleUnknownCommand($chatId, $text);
@@ -116,6 +121,17 @@ function handleStart(int $chatId, int $userId, array $message): void
 
     sendMessage($chatId, $text);
     logEvent('Handled /start for user ' . $userId);
+}
+
+function handleHelp(int $chatId): void
+{
+    $text  = "ℹ️ Help\n\n";
+    $text .= "Available commands:\n";
+    $text .= "/start — Show the welcome message\n";
+    $text .= "/help  — Show this help text\n\n";
+    $text .= "Send any text message and I'll echo it back.";
+
+    sendMessage($chatId, $text);
 }
 
 function handleUnknownCommand(int $chatId, string $command): void

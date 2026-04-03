@@ -7,7 +7,8 @@
  * Send a message to a Telegram chat.
  *
  * @param int|string $chatId  Target chat ID.
- * @param string     $text    Message text (HTML entities will NOT be escaped — pass safe text).
+ * @param string     $text    Message text. Callers are responsible for sanitizing
+ *                            user-supplied content before passing it here (e.g. htmlspecialchars).
  * @param array      $extra   Additional Telegram API parameters (parse_mode, reply_markup, etc.).
  * @return array|null         Decoded Telegram API response, or null on failure.
  */
