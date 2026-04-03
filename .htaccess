@@ -1,0 +1,18 @@
+# Root .htaccess — protect sensitive PHP files from direct access
+# and optionally redirect all traffic to index.php
+
+# Deny direct access to config
+<Files "config.php">
+    Order deny,allow
+    Deny from all
+</Files>
+
+# Deny access to bot classes
+<FilesMatch "^(Bot|Storage|Lang|Keyboards|Payments)\.php$">
+    Order deny,allow
+    Deny from all
+</FilesMatch>
+
+# General settings
+Options -Indexes
+ServerSignature Off

@@ -1,0 +1,23 @@
+[
+    {
+        "id": 1,
+        "name_ru": "Архивы",
+        "name_en": "Archives",
+        "enabled": true,
+        "sort_order": 1
+    },
+    {
+        "id": 2,
+        "name_ru": "Фото",
+        "name_en": "Photos",
+        "enabled": true,
+        "sort_order": 2
+    },
+    {
+        "id": 3,
+        "name_ru": "Файлы",
+        "name_en": "Files",
+        "enabled": true,
+        "sort_order": 3
+    }
+]
