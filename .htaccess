@@ -11,3 +11,10 @@ Options -Indexes
 
 # Hide server signature
 ServerSignature Off
+
+# Deny direct access to the data directory
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^data/.*$ - [F,L]
+    RewriteRule ^storage/.*$ - [F,L]
+</IfModule>

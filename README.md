@@ -1,7 +1,8 @@
-# Telegram Bot (PHP)
+# Digital Goods Telegram Bot (PHP)
 
-A clean, production-ready Telegram bot built in plain PHP.  
-Handles webhook updates, supports text commands, logs events and errors.
+A production-ready Telegram bot for selling digital goods, built in plain PHP.  
+Features a product catalog, user balance/top-up, purchase history, RU/EN localization,  
+payment integrations (Heleket, CryptoBot), and a web-based admin panel.
 
 ---
 
@@ -12,7 +13,7 @@ Handles webhook updates, supports text commands, logs events and errors.
 | PHP | 8.0 or higher |
 | cURL extension | `extension=curl` must be enabled |
 | HTTPS | Required by Telegram for webhooks |
-| Write permissions | `logs/` directory must be writable by the web server |
+| Write permissions | `data/`, `logs/`, `storage/` directories must be writable |
 
 ---
 
@@ -20,15 +21,31 @@ Handles webhook updates, supports text commands, logs events and errors.
 
 ```
 /
-├── config.php          — Configuration (reads from environment)
-├── webhook.php         — Telegram webhook entry point
-├── set_webhook.php     — Register the webhook with Telegram
-├── helpers.php         — Shared utility functions
-├── .htaccess           — Protect sensitive files from direct access
+├── config.php              — Configuration (reads from environment variables)
+├── webhook.php             — Telegram webhook entry point + payment callbacks
+├── set_webhook.php         — Register the webhook with Telegram
+├── helpers.php             — Standalone helper functions (legacy / utility)
+├── .htaccess               — Protect sensitive files and directories
+├── bot/
+│   ├── handlers.php        — Message and callback_query routing
+│   ├── storage.php         — JSON-based data layer
+│   ├── utils.php           — TgBot class (Telegram API wrapper + logging)
+│   ├── lang.php            — RU/EN localization strings
+│   └── payments.php        — Heleket and CryptoBot payment integrations
+├── admin/
+│   └── index.php           — Single-file admin panel (categories, products, orders, users, settings)
+├── data/
+│   ├── categories.json     — Product categories
+│   ├── products.json       — Products
+│   ├── orders.json         — Purchase orders
+│   ├── payments.json       — Payment transactions
+│   ├── settings.json       — Bot settings (editable via admin panel)
+│   └── users.json          — User records
+├── storage/
+│   └── files/              — Uploaded digital product files (protected from web access)
 ├── logs/
-│   ├── webhook.log     — All incoming updates (auto-created, capped at 5 MB)
-│   └── error.log       — Error events (auto-created)
-└── README.md           — This file
+│   └── bot.log             — Application log (auto-created, capped at 5 MB)
+└── README.md               — This file
 ```
 
 ---
@@ -41,25 +58,33 @@ Handles webhook updates, supports text commands, logs events and errors.
 git clone https://github.com/youruser/bot.git /var/www/html/bot
 ```
 
-Or upload the files to your web server's public root.
-
 ### 2. Set environment variables
 
-**Never** put secrets in source files. Export them before running PHP, or set them in your hosting control panel / `.env` loader.
+**Never** put secrets in source files. Export them before running PHP, or set them in your hosting control panel.
 
 | Variable | Required | Description |
 |---|---|---|
 | `BOT_TOKEN` | ✅ | Bot token from [@BotFather](https://t.me/BotFather) |
 | `WEBHOOK_URL` | ✅ | Full HTTPS URL to `webhook.php`, e.g. `https://example.com/webhook.php` |
-| `WEBHOOK_SECRET` | recommended | Random string sent in the `X-Telegram-Bot-Api-Secret-Token` header |
-| `ADMIN_IDS` | optional | Comma-separated Telegram user IDs for admin checks, e.g. `123456,789012` |
+| `WEBHOOK_SECRET` | recommended | Random string for `X-Telegram-Bot-Api-Secret-Token` header |
+| `APP_URL` | ✅ | Base URL of your site, e.g. `https://example.com` (used for payment callbacks) |
+| `BOT_USERNAME` | optional | Bot username without `@`, e.g. `myshopbot` |
+| `ADMIN_CHAT_ID` | optional | Your Telegram user ID for admin notifications |
+| `ADMIN_LOGIN` | optional | Admin panel login (default: `admin`) |
+| `ADMIN_PASSWORD` | optional | Admin panel password or bcrypt hash (default: `changeme123`) |
+| `ADMIN_SESSION_NAME` | optional | PHP session name for admin panel |
+| `HELEKET_API_KEY` | optional | Heleket.com API key |
+| `HELEKET_SHOP_ID` | optional | Heleket.com Shop ID |
+| `CRYPTOBOT_TOKEN` | optional | CryptoBot API token from [@CryptoBot](https://t.me/CryptoBot) |
+| `CRYPTOBOT_TESTNET` | optional | Set to `true` to use CryptoBot testnet |
 
 Example (Linux shell):
 ```bash
 export BOT_TOKEN="1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 export WEBHOOK_URL="https://example.com/webhook.php"
 export WEBHOOK_SECRET="$(openssl rand -hex 32)"
-export ADMIN_IDS="123456789"
+export APP_URL="https://example.com"
+export ADMIN_PASSWORD="$(php -r "echo password_hash('your_password', PASSWORD_DEFAULT);")"
 ```
 
 Example (Apache `VirtualHost`):
@@ -67,19 +92,14 @@ Example (Apache `VirtualHost`):
 SetEnv BOT_TOKEN "1234567890:AAxxxxxxxx..."
 SetEnv WEBHOOK_URL "https://example.com/webhook.php"
 SetEnv WEBHOOK_SECRET "your-random-secret"
-```
-
-Example (Nginx + PHP-FPM, `fastcgi_params`):
-```nginx
-fastcgi_param BOT_TOKEN "1234567890:AAxxxxxxxx...";
-fastcgi_param WEBHOOK_URL "https://example.com/webhook.php";
-fastcgi_param WEBHOOK_SECRET "your-random-secret";
+SetEnv APP_URL "https://example.com"
+SetEnv ADMIN_PASSWORD "$2y$12$..."
 ```
 
 ### 3. Set directory permissions
 
 ```bash
-chmod 755 logs/
+chmod 755 data/ logs/ storage/ storage/files/
 ```
 
 ### 4. Register the webhook
@@ -103,52 +123,72 @@ A successful response looks like:
 }
 ```
 
-### 5. Test it
+### 5. Access the admin panel
 
-Send `/start` to your bot in Telegram. You should receive a greeting reply.
+Navigate to:
+```
+https://example.com/admin/index.php
+```
+
+Log in with `ADMIN_LOGIN` / `ADMIN_PASSWORD`. From the admin panel you can:
+- Add/edit/delete product categories
+- Add/edit/delete products (with file upload)
+- View orders and users
+- Edit bot settings (welcome message, currency, minimum deposit)
+
+### 6. Test the bot
+
+Send `/start` to your bot in Telegram. You should see a welcome message and the main menu.
 
 ---
 
-## Adding New Commands
+## Bot Commands
 
-Open `webhook.php` and add a new branch inside `handleUpdate()`:
-
-```php
-if (str_starts_with($text, '/mycommand')) {
-    handleMyCommand($chatId, $userId, $message);
-    return;
-}
-```
-
-Then define the handler function at the bottom of the file:
-
-```php
-function handleMyCommand(int $chatId, int $userId, array $message): void
-{
-    sendMessage($chatId, '✅ My command works!');
-}
-```
-
----
-
-## Utility Functions (`helpers.php`)
-
-| Function | Description |
+| Command | Description |
 |---|---|
-| `sendMessage($chatId, $text, $extra)` | Send a text message to a chat |
-| `apiRequest($method, $params)` | Call any Telegram Bot API method |
-| `logEvent($message, $file)` | Append a line to a log file in `logs/` |
-| `logError($message)` | Shorthand to log to `error.log` |
-| `isAdmin($userId)` | Check if a user ID is in `ADMIN_IDS` |
-| `arrayGet($array, $key, $default)` | Safe dot-notation array accessor |
+| `/start` | Show welcome message and main menu |
+| `/catalog` | Browse product categories |
+| `/balance` | Check your current balance |
+| `/history` | View your purchase history |
+| `/profile` | Show your profile info |
+
+The main menu also provides reply-keyboard buttons for all of the above.
+
+---
+
+## Payment Integrations
+
+### Heleket
+Set `HELEKET_API_KEY` and `HELEKET_SHOP_ID`. The payment callback URL is:
+```
+https://example.com/webhook.php?route=heleket
+```
+
+### CryptoBot
+Set `CRYPTOBOT_TOKEN`. The callback is handled automatically by CryptoBot's webhook system.
+
+If neither payment gateway is configured, the bot will generate demo invoice links for testing.
+
+---
+
+## Adding Products
+
+1. Log into the admin panel at `/admin/index.php`.
+2. Create a category under **Categories**.
+3. Add a product under **Products** — attach a file from `storage/files/` or enter a Telegram file ID.
+4. Set the product as active.
+
+Users can then browse the catalog, top up their balance, and purchase products.
 
 ---
 
 ## Security Notes
 
-- Secrets are **never** in source code — always use environment variables.
-- `.htaccess` blocks direct browser access to `config.php`, `helpers.php`, and `set_webhook.php`.
+- All secrets use environment variables — never hardcoded.
+- `.htaccess` and per-directory `.htaccess` files block direct access to `data/`, `storage/`, `config.php`, `helpers.php`, and `set_webhook.php`.
 - `WEBHOOK_SECRET` ensures only Telegram can post to `webhook.php`.
-- The webhook responds with HTTP 200 immediately before processing to prevent Telegram retries.
-- All user input is sanitised with `htmlspecialchars` before being echoed back.
-- Errors are caught and logged without leaking internal details to the caller.
+- Payment provider webhooks verify HMAC signatures (Heleket) or API tokens (CryptoBot).
+- Admin panel supports bcrypt-hashed passwords.
+- All user input is HTML-escaped before being displayed.
+- File delivery validates paths against `storage/` to prevent path traversal.
+- JSON data files use exclusive file locking to prevent race conditions.

@@ -4,6 +4,15 @@ logs/*
 !logs/.htaccess
 !logs/.gitkeep
 
+# Data files (user data — do not commit to version control)
+data/users.json
+data/orders.json
+data/payments.json
+
+# Uploaded/stored files
+storage/files/*
+!storage/files/.gitkeep
+
 # IDE / OS files
 .DS_Store
 *.DS_Store
