@@ -1,154 +1,172 @@
-# Telegram Bot (PHP)
+# Telegram магазин файлов (PHP + vanilla JS)
 
-A clean, production-ready Telegram bot built in plain PHP.  
-Handles webhook updates, supports text commands, logs events and errors.
+Минималистичный проект бота для продажи файлов:
+- бот на `webhook.php`
+- админка в одном файле `admin/index.php` (SPA без внешних библиотек)
+- база данных в JSON
+- архивы формируются сервером через `ZipArchive`
 
----
+## Структура
 
-## Requirements
-
-| Requirement | Details |
-|---|---|
-| PHP | 8.0 or higher |
-| cURL extension | `extension=curl` must be enabled |
-| HTTPS | Required by Telegram for webhooks |
-| Write permissions | `logs/` directory must be writable by the web server |
-
----
-
-## Project Structure
-
-```
+```text
 /
-├── config.php          — Configuration (reads from environment)
-├── webhook.php         — Telegram webhook entry point
-├── set_webhook.php     — Register the webhook with Telegram
-├── helpers.php         — Shared utility functions
-├── .htaccess           — Protect sensitive files from direct access
+├── webhook.php
+├── admin/
+│   ├── index.php
+│   └── .htaccess
+├── data/
+│   ├── users.json
+│   ├── categories.json
+│   ├── products.json
+│   └── settings.json
+├── files/
+│   └── .htaccess
 ├── logs/
-│   ├── webhook.log     — All incoming updates (auto-created, capped at 5 MB)
-│   └── error.log       — Error events (auto-created)
-└── README.md           — This file
+│   └── .htaccess
+├── config.php
+├── helpers.php
+├── .htaccess
+└── set_webhook.php
 ```
 
----
+## Требования
 
-## Setup
+- PHP 8.0+
+- расширения: `curl`, `zip`
+- HTTPS домен
+- права записи для папок `data/`, `files/`, `logs/`
 
-### 1. Clone / upload files
+## Переменные окружения
 
-```bash
-git clone https://github.com/youruser/bot.git /var/www/html/bot
-```
+Все секреты только через `getenv()`:
 
-Or upload the files to your web server's public root.
+- `BOT_TOKEN`
+- `WEBHOOK_URL` (полный URL до `webhook.php`)
+- `WEBHOOK_SECRET`
+- `ADMIN_PASSWORD`
 
-### 2. Set environment variables
+Пример для Apache (`.htaccess`):
 
-**Never** put secrets in source files. Export them before running PHP, or set them in your hosting control panel / `.env` loader.
-
-| Variable | Required | Description |
-|---|---|---|
-| `BOT_TOKEN` | ✅ | Bot token from [@BotFather](https://t.me/BotFather) |
-| `WEBHOOK_URL` | ✅ | Full HTTPS URL to `webhook.php`, e.g. `https://example.com/webhook.php` |
-| `WEBHOOK_SECRET` | recommended | Random string sent in the `X-Telegram-Bot-Api-Secret-Token` header |
-| `ADMIN_IDS` | optional | Comma-separated Telegram user IDs for admin checks, e.g. `123456,789012` |
-
-Example (Linux shell):
-```bash
-export BOT_TOKEN="1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-export WEBHOOK_URL="https://example.com/webhook.php"
-export WEBHOOK_SECRET="$(openssl rand -hex 32)"
-export ADMIN_IDS="123456789"
-```
-
-Example (Apache `VirtualHost`):
 ```apache
-SetEnv BOT_TOKEN "1234567890:AAxxxxxxxx..."
+SetEnv BOT_TOKEN "<BOT_TOKEN>"
 SetEnv WEBHOOK_URL "https://example.com/webhook.php"
-SetEnv WEBHOOK_SECRET "your-random-secret"
+SetEnv WEBHOOK_SECRET "very_secret_value"
+SetEnv ADMIN_PASSWORD "strong_admin_password"
 ```
 
-Example (Nginx + PHP-FPM, `fastcgi_params`):
-```nginx
-fastcgi_param BOT_TOKEN "1234567890:AAxxxxxxxx...";
-fastcgi_param WEBHOOK_URL "https://example.com/webhook.php";
-fastcgi_param WEBHOOK_SECRET "your-random-secret";
-```
+## Установка
 
-### 3. Set directory permissions
+1. Загрузите проект на хостинг.
+2. Укажите переменные окружения.
+3. Убедитесь, что папки `data`, `files`, `logs` доступны на запись.
+4. Установите webhook:
+   - CLI: `php set_webhook.php`
+   - браузер: `https://example.com/set_webhook.php?secret=YOUR_WEBHOOK_SECRET`
+5. Откройте админку: `https://example.com/admin/`
 
-```bash
-chmod 755 logs/
-```
+## Как работает бот
 
-### 4. Register the webhook
+### `/start`
+- если язык не выбран: показывает кнопки 🇷🇺/🇬🇧
+- если уже выбран: сразу главное меню
 
-**Via CLI** (recommended):
-```bash
-BOT_TOKEN=... WEBHOOK_URL=... WEBHOOK_SECRET=... php set_webhook.php
-```
+### Главное меню
+- 🛍 Каталог
+- 👤 Личный кабинет
+- ℹ️ Помощь
 
-**Via browser** (pass `WEBHOOK_SECRET` as a query parameter):
-```
-https://example.com/set_webhook.php?secret=your-random-secret
-```
+### Каталог
+- показывает категории и количество доступных товаров
+- внутри категории: товар, цена, остаток
+- покупка:
+  - проверка баланса
+  - защита от гонок через lock-файл
+  - списание баланса
+  - уменьшение остатка
+  - запись истории
+  - отправка ZIP через `sendDocument`
 
-A successful response looks like:
+### Личный кабинет
+- имя, баланс, количество покупок
+- пополнение (инструкция с `@admin_username`)
+- история покупок
+- повторная отправка файла
+
+## Админка
+
+### Авторизация
+- пароль из `ADMIN_PASSWORD`
+- сессия через PHP session
+
+### Разделы
+- 📦 Категории: создание (RU/EN), удаление (если нет товаров)
+- 🗂 Товары: создание, загрузка файлов (drag & drop + input), ZIP-архив, цена, остаток
+- 👥 Пользователи: список, пополнение баланса, просмотр истории
+- ⚙️ Настройки: username администратора для инструкции пополнения
+- 📊 Статистика: пользователи, продажи, выручка, последние 10 покупок
+
+## JSON структуры
+
+### `data/users.json`
+
 ```json
 {
-    "ok": true,
-    "result": true,
-    "description": "Webhook was set"
+  "123456789": {
+    "id": 123456789,
+    "first_name": "Ivan",
+    "username": "ivan",
+    "lang": "ru",
+    "balance": 100,
+    "purchases": [
+      {
+        "id": "uuid",
+        "product_id": "product_uuid",
+        "product_name": "Название",
+        "price": 50,
+        "date": "2026-04-19 12:00:00",
+        "file": "files/archive_uuid.zip"
+      }
+    ]
+  }
 }
 ```
 
-### 5. Test it
+### `data/categories.json`
 
-Send `/start` to your bot in Telegram. You should receive a greeting reply.
-
----
-
-## Adding New Commands
-
-Open `webhook.php` and add a new branch inside `handleUpdate()`:
-
-```php
-if (str_starts_with($text, '/mycommand')) {
-    handleMyCommand($chatId, $userId, $message);
-    return;
-}
-```
-
-Then define the handler function at the bottom of the file:
-
-```php
-function handleMyCommand(int $chatId, int $userId, array $message): void
+```json
 {
-    sendMessage($chatId, '✅ My command works!');
+  "cat_uuid": {
+    "id": "cat_uuid",
+    "name": {"ru": "Документы", "en": "Documents"},
+    "description": {"ru": "...", "en": "..."}
+  }
 }
 ```
 
----
+### `data/products.json`
 
-## Utility Functions (`helpers.php`)
+```json
+{
+  "prod_uuid": {
+    "id": "prod_uuid",
+    "category_id": "cat_uuid",
+    "name": {"ru": "Пакет", "en": "Pack"},
+    "price": 99,
+    "file": "files/archive_prod_uuid.zip",
+    "stock": -1,
+    "sold": 0,
+    "active": true,
+    "created_at": "2026-04-19 12:00:00"
+  }
+}
+```
 
-| Function | Description |
-|---|---|
-| `sendMessage($chatId, $text, $extra)` | Send a text message to a chat |
-| `apiRequest($method, $params)` | Call any Telegram Bot API method |
-| `logEvent($message, $file)` | Append a line to a log file in `logs/` |
-| `logError($message)` | Shorthand to log to `error.log` |
-| `isAdmin($userId)` | Check if a user ID is in `ADMIN_IDS` |
-| `arrayGet($array, $key, $default)` | Safe dot-notation array accessor |
+### `data/settings.json`
 
----
-
-## Security Notes
-
-- Secrets are **never** in source code — always use environment variables.
-- `.htaccess` blocks direct browser access to `config.php`, `helpers.php`, and `set_webhook.php`.
-- `WEBHOOK_SECRET` ensures only Telegram can post to `webhook.php`.
-- The webhook responds with HTTP 200 immediately before processing to prevent Telegram retries.
-- All user input is sanitised with `htmlspecialchars` before being echoed back.
-- Errors are caught and logged without leaking internal details to the caller.
+```json
+{
+  "admin_username": "admin_tg_username",
+  "currency": "RUB",
+  "currency_symbol": "₽"
+}
+```
