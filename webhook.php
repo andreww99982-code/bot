@@ -143,7 +143,7 @@ function handleCallback(array $callback): void
     }
 
     if ($data === 'menu:catalog') {
-        showCatalog($chatId, $messageId, $lang);
+        showCatalog($chatId, $messageId, $lang, null);
         return;
     }
 
@@ -163,7 +163,13 @@ function handleCallback(array $callback): void
     }
 
     if ($data === 'menu:help') {
-        editMessageText($chatId, $messageId, t('help_text', $lang), [
+        $settings = readJson(SETTINGS_FILE);
+        $help = trim((string) (($settings['help_text'][$lang] ?? $settings['help_text']['ru'] ?? '')));
+        if ($help === '') {
+            $help = t('help_text', $lang);
+        }
+
+        editMessageText($chatId, $messageId, $help, [
             'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
         ]);
         return;
@@ -203,7 +209,23 @@ function sendMainMenu(int $chatId, string $lang, bool $edit = false, string $nam
     sendMessage($chatId, $text, ['reply_markup' => json_encode($markup, JSON_UNESCAPED_UNICODE)]);
 }
 
-function showCatalog(int $chatId, int $messageId, string $lang): void
+function isRootCategory(array $category): bool
+{
+    return !isset($category['parent_id']) || $category['parent_id'] === null || $category['parent_id'] === '';
+}
+
+function findChildCategories(array $categories, string $parentId): array
+{
+    $children = [];
+    foreach ($categories as $category) {
+        if ((string) ($category['parent_id'] ?? '') === $parentId) {
+            $children[] = $category;
+        }
+    }
+    return $children;
+}
+
+function showCatalog(int $chatId, int $messageId, string $lang, ?string $parentId): void
 {
     $categories = readJson(CATEGORIES_FILE);
     $products = readJson(PRODUCTS_FILE);
@@ -218,6 +240,14 @@ function showCatalog(int $chatId, int $messageId, string $lang): void
     $text = t('catalog_title', $lang) . "\n\n";
     $buttons = [];
     foreach ($categories as $category) {
+        if ($parentId === null) {
+            if (!isRootCategory($category)) {
+                continue;
+            }
+        } elseif ((string) ($category['parent_id'] ?? '') !== $parentId) {
+            continue;
+        }
+
         $count = 0;
         foreach ($products as $product) {
             if (($product['category_id'] ?? '') !== ($category['id'] ?? '')) {
@@ -235,7 +265,15 @@ function showCatalog(int $chatId, int $messageId, string $lang): void
         $text .= '• ' . $name . ' (' . $count . ")\n";
         $buttons[] = [['text' => $name . ' (' . $count . ')', 'callback_data' => 'cat:' . $category['id']]];
     }
-    $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => 'main']];
+
+    if (!$buttons) {
+        editMessageText($chatId, $messageId, t('no_categories', $lang), [
+            'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => $parentId === null ? 'main' : ('cat:' . $parentId)]]]], JSON_UNESCAPED_UNICODE),
+        ]);
+        return;
+    }
+
+    $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => $parentId === null ? 'main' : ('cat:' . $parentId)]];
 
     editMessageText($chatId, $messageId, trim($text), [
         'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
@@ -250,11 +288,42 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
 
     $category = $categories[$categoryId] ?? null;
     if (!$category) {
-        showCatalog($chatId, $messageId, $lang);
+        showCatalog($chatId, $messageId, $lang, null);
         return;
     }
 
     $categoryName = (string) ($category['name'][$lang] ?? $category['name']['ru'] ?? 'Category');
+    $children = findChildCategories($categories, $categoryId);
+    if ($children) {
+        $text = t('catalog_title', $lang) . "\n\n";
+        $buttons = [];
+        foreach ($children as $child) {
+            $count = 0;
+            foreach ($products as $product) {
+                if (($product['category_id'] ?? '') !== ($child['id'] ?? '')) {
+                    continue;
+                }
+                if (!($product['active'] ?? false)) {
+                    continue;
+                }
+                $stock = (int) ($product['stock'] ?? 0);
+                if ($stock !== 0) {
+                    $count++;
+                }
+            }
+            $name = (string) ($child['name'][$lang] ?? $child['name']['ru'] ?? 'Category');
+            $text .= '• ' . $name . ' (' . $count . ")\n";
+            $buttons[] = [['text' => $name . ' (' . $count . ')', 'callback_data' => 'cat:' . $child['id']]];
+        }
+
+        $backTarget = isRootCategory($category) ? 'menu:catalog' : ('cat:' . (string) $category['parent_id']);
+        $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => $backTarget]];
+        editMessageText($chatId, $messageId, trim($text), [
+            'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
+        ]);
+        return;
+    }
+
     $text = t('products_title', $lang, ['name' => $categoryName]) . "\n\n";
 
     $buttons = [];
@@ -284,7 +353,7 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
         $text .= t('category_empty', $lang);
     }
 
-    $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => 'menu:catalog']];
+    $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => isRootCategory($category) ? 'menu:catalog' : ('cat:' . (string) $category['parent_id'])]];
 
     editMessageText($chatId, $messageId, trim($text), [
         'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
@@ -409,9 +478,12 @@ function showAccount(int $chatId, int $messageId, string $userId, string $lang):
 function showTopup(int $chatId, int $messageId, string $userId, string $lang): void
 {
     $settings = readJson(SETTINGS_FILE);
-    $admin = (string) ($settings['admin_username'] ?? 'admin');
+    $admin = ltrim((string) ($settings['admin_username'] ?? 'admin'), '@');
+    if ($admin === '') {
+        $admin = 'admin';
+    }
 
-    editMessageText($chatId, $messageId, t('topup_text', $lang, ['admin' => $admin, 'id' => $userId]), [
+    editMessageText($chatId, $messageId, t('topup_text', $lang, ['admin_username' => $admin, 'user_id' => $userId]), [
         'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => 'menu:account']]]], JSON_UNESCAPED_UNICODE),
     ]);
 }
