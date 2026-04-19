@@ -1,59 +1,32 @@
 <?php
-/**
- * set_webhook.php — Register the Telegram webhook with the Bot API.
- *
- * Usage:
- *   CLI:     php set_webhook.php
- *   Browser: https://your-domain.com/set_webhook.php  (requires WEBHOOK_SECRET)
- */
 
-// Prevent direct browser access unless a matching secret is provided
+declare(strict_types=1);
+
+require_once __DIR__ . '/helpers.php';
+
 if (PHP_SAPI !== 'cli') {
-    require_once __DIR__ . '/config.php';
-    $provided = $_GET['secret'] ?? $_SERVER['HTTP_X_SETUP_TOKEN'] ?? '';
+    $provided = (string) ($_GET['secret'] ?? $_SERVER['HTTP_X_SETUP_TOKEN'] ?? '');
     if (WEBHOOK_SECRET === '' || !hash_equals(WEBHOOK_SECRET, $provided)) {
         http_response_code(403);
-        exit('Access denied. Run via CLI: php set_webhook.php');
+        exit('Access denied');
     }
 }
 
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/helpers.php';
-
-// Validate required configuration
-if (BOT_TOKEN === '') {
-    exitWithMessage('Error: BOT_TOKEN is not set. Export it as an environment variable.');
-}
-if (WEBHOOK_URL === '') {
-    exitWithMessage('Error: WEBHOOK_URL is not set. Export it as an environment variable.');
+if (BOT_TOKEN === '' || WEBHOOK_URL === '') {
+    http_response_code(500);
+    exit('BOT_TOKEN and WEBHOOK_URL must be set via environment variables');
 }
 
-// Build request parameters
-$params = ['url' => WEBHOOK_URL];
+$params = [
+    'url' => WEBHOOK_URL,
+    'allowed_updates' => ['message', 'callback_query'],
+];
+
 if (WEBHOOK_SECRET !== '') {
     $params['secret_token'] = WEBHOOK_SECRET;
 }
 
-// Call setWebhook
-$result = apiRequest('setWebhook', $params);
+$result = apiRequest('setWebhook', $params) ?? ['ok' => false, 'description' => 'No response from Telegram API'];
 
-$output = json_encode($result ?? ['ok' => false, 'description' => 'No response'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-
-if (PHP_SAPI === 'cli') {
-    echo $output . "\n";
-} else {
-    header('Content-Type: application/json');
-    echo $output;
-}
-
-function exitWithMessage(string $msg): void
-{
-    if (PHP_SAPI === 'cli') {
-        fwrite(STDERR, $msg . "\n");
-    } else {
-        http_response_code(500);
-        echo $msg;
-    }
-    exit(1);
-}
-
+header('Content-Type: application/json; charset=utf-8');
+echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);

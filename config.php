@@ -1,24 +1,44 @@
 <?php
-// ============================================================
-//  config.php — Bot configuration
-//  All secrets must be set via environment variables.
-//  Never hardcode credentials here.
-// ============================================================
 
-// Telegram bot token from @BotFather (required)
-define('BOT_TOKEN',      getenv('BOT_TOKEN')      ?: '');
+declare(strict_types=1);
 
-// Full HTTPS URL where webhook.php is reachable by Telegram (required)
-define('WEBHOOK_URL',    getenv('WEBHOOK_URL')     ?: '');
+define('BOT_TOKEN', (string) (getenv('BOT_TOKEN') ?: ''));
+define('WEBHOOK_URL', (string) (getenv('WEBHOOK_URL') ?: ''));
+define('WEBHOOK_SECRET', (string) (getenv('WEBHOOK_SECRET') ?: ''));
+define('ADMIN_PASSWORD', (string) (getenv('ADMIN_PASSWORD') ?: 'changeme'));
 
-// Optional secret token sent by Telegram in X-Telegram-Bot-Api-Secret-Token header
-define('WEBHOOK_SECRET', getenv('WEBHOOK_SECRET')  ?: '');
+define('BASE_DIR', __DIR__);
+define('DATA_DIR', BASE_DIR . '/data');
+define('FILES_DIR', BASE_DIR . '/files');
+define('LOG_DIR', BASE_DIR . '/logs');
 
-// Comma-separated Telegram user IDs that are treated as admins, e.g. "123456,789012"
-define('ADMIN_IDS',      getenv('ADMIN_IDS')       ?: '');
+define('USERS_FILE', DATA_DIR . '/users.json');
+define('CATEGORIES_FILE', DATA_DIR . '/categories.json');
+define('PRODUCTS_FILE', DATA_DIR . '/products.json');
+define('SETTINGS_FILE', DATA_DIR . '/settings.json');
 
-// Paths
-define('LOG_DIR', __DIR__ . '/logs');
-
-// Telegram Bot API base URL
 define('TELEGRAM_API', 'https://api.telegram.org/bot' . BOT_TOKEN);
+
+$requiredDirs = [DATA_DIR, FILES_DIR, LOG_DIR, BASE_DIR . '/admin'];
+foreach ($requiredDirs as $dir) {
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+}
+
+$defaults = [
+    USERS_FILE => (object) [],
+    CATEGORIES_FILE => (object) [],
+    PRODUCTS_FILE => (object) [],
+    SETTINGS_FILE => [
+        'admin_username' => 'admin',
+        'currency' => 'RUB',
+        'currency_symbol' => '₽',
+    ],
+];
+
+foreach ($defaults as $file => $data) {
+    if (!file_exists($file)) {
+        @file_put_contents($file, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+    }
+}

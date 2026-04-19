@@ -1,13 +1,20 @@
-# .htaccess — Security rules for the bot root directory
+SetEnv BOT_TOKEN ""
+SetEnv WEBHOOK_URL ""
+SetEnv WEBHOOK_SECRET ""
+SetEnv ADMIN_PASSWORD "changeme"
 
-# Deny direct browser access to sensitive PHP files
-<FilesMatch "^(config|helpers|set_webhook)\.php$">
-    Order deny,allow
-    Deny from all
-</FilesMatch>
-
-# Prevent directory listings
 Options -Indexes
 
-# Hide server signature
-ServerSignature Off
+<FilesMatch "^(config|helpers)\.php$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(json|lock)$">
+    Require all denied
+</FilesMatch>
+
+<Files "webhook.php">
+    <If "%{REQUEST_METHOD} != 'POST'">
+        Require all denied
+    </If>
+</Files>
