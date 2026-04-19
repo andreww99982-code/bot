@@ -461,8 +461,13 @@ if (isset($_GET['api'])) {
     }
 
     if ($api === 'save_settings' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $adminUsername = preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['admin_username'] ?? 'admin'))) ?: 'admin';
+        if (strlen($adminUsername) < 5) {
+            jsonResponse(['ok' => false, 'error' => 'username_invalid_format'], 400);
+        }
+
         $settings = [
-            'admin_username' => preg_replace('/[^a-zA-Z0-9_]/', '', trim((string) ($_POST['admin_username'] ?? 'admin'))) ?: 'admin',
+            'admin_username' => $adminUsername,
             'currency' => strtoupper(substr(trim((string) ($_POST['currency'] ?? 'USD')), 0, 5)) ?: 'USD',
             'currency_symbol' => substr(trim((string) ($_POST['currency_symbol'] ?? '$')), 0, 5) ?: '$',
             'help_text' => [
@@ -704,6 +709,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
     <div id="toast-wrap" class="toast-wrap"></div>
 
     <script>
+        const HTML_ESC_MAP = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'};
         const state = {
             categories: [],
             products: [],
@@ -717,7 +723,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
         };
 
         function esc(v) {
-            return String(v ?? '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+            return String(v ?? '').replace(/[&<>"']/g, (m) => HTML_ESC_MAP[m]);
         }
 
         function toast(msg, type = 'success') {
