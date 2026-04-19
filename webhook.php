@@ -10,10 +10,14 @@ $rawBody = file_get_contents('php://input');
 if ($rawBody === false) {
     $rawBody = '';
 }
+$debugBody = mb_substr($rawBody, 0, 4000);
+if (strlen($rawBody) > 4000) {
+    $debugBody .= '...[truncated]';
+}
 
 @file_put_contents(
     $logsDir . '/debug.log',
-    date('Y-m-d H:i:s') . ' [' . $requestMethod . '] ' . $rawBody . PHP_EOL,
+    date('Y-m-d H:i:s') . ' [' . $requestMethod . '] ' . $debugBody . PHP_EOL,
     FILE_APPEND | LOCK_EX
 );
 
