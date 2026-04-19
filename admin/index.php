@@ -242,7 +242,7 @@ if (isset($_GET['api'])) {
         }
         $currency = strtoupper(trim((string) ($_POST['currency'] ?? '')));
         $currencySymbol = trim((string) ($_POST['currency_symbol'] ?? ''));
-        $currency = preg_replace('/[^A-Z]/', '', $currency) ?? '';
+        $currency = preg_replace('/[^A-Z]/', '', $currency);
         $settings['admin_username'] = $username;
         $settings['currency'] = mb_substr($currency, 0, 5) ?: 'USD';
         $settings['currency_symbol'] = mb_substr($currencySymbol, 0, 5) ?: '$';
