@@ -709,7 +709,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
     <div id="toast-wrap" class="toast-wrap"></div>
 
     <script>
-        const HTML_ESC_MAP = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'};
+        const HTML_ESC_MAP = {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"};
         const state = {
             categories: [],
             products: [],
@@ -723,7 +723,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
         };
 
         function esc(v) {
-            return String(v ?? '').replace(/[&<>"']/g, (m) => HTML_ESC_MAP[m]);
+            return String(v ?? '').replace(/[&<>"']/g, (m) => HTML_ESC_MAP[m] || m);
         }
 
         function toast(msg, type = 'success') {
@@ -807,7 +807,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
 
             document.getElementById('category-parent').innerHTML = `
                 <option value="" selected>— Корневая категория (без родителя) —</option>
-                ${flat.map(({category, depth}) => `<option value="${esc(category.id)}">${'&nbsp;'.repeat(depth * 4)}${esc(categoryName(category))}</option>`).join('')}
+                ${flat.map(({category, depth}) => `<option value="${esc(category.id)}">${esc('└─ '.repeat(depth) + categoryName(category))}</option>`).join('')}
             `;
 
             document.getElementById('categories-wrap').innerHTML = `
@@ -844,7 +844,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
 
             document.getElementById('product-category').innerHTML = `
                 <option value="">Выберите категорию</option>
-                ${flat.map(({category, depth}) => `<option value="${esc(category.id)}">${'&nbsp;'.repeat(depth * 4)}${esc(categoryName(category))}</option>`).join('')}
+                ${flat.map(({category, depth}) => `<option value="${esc(category.id)}">${esc('└─ '.repeat(depth) + categoryName(category))}</option>`).join('')}
             `;
 
             document.getElementById('products-wrap').innerHTML = `
