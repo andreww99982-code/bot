@@ -107,6 +107,18 @@ if (isset($_GET['api'])) {
         jsonResponse(['ok' => true, 'message' => 'Категория создана']);
     }
 
+    if ($api === 'get_categories' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        jsonResponse([
+            'ok' => true,
+            'categories' => array_values(array_map(static function (array $category): array {
+                if (!array_key_exists('parent_id', $category)) {
+                    $category['parent_id'] = null;
+                }
+                return $category;
+            }, readJson(CATEGORIES_FILE))),
+        ]);
+    }
+
     if ($api === 'delete_category' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (string) ($_POST['id'] ?? '');
         $categories = readJson(CATEGORIES_FILE);
@@ -392,9 +404,10 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
             function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));}
             function categoryName(c){return c?.name?.ru||c?.name?.en||'—'}
             function withParent(category){ return {...category, parent_id: category?.parent_id || null}; }
+            function normalizedCategories(){ return state.categories.map(withParent); }
+            function rootCategories(){ return normalizedCategories().filter(c => c.parent_id === null); }
             function flattenCategories(parentId = null, depth = 0, out = [], seen = new Set()){
-                state.categories
-                    .map(withParent)
+                normalizedCategories()
                     .filter(c => c.parent_id === parentId)
                     .forEach(c => {
                         if(seen.has(c.id)){ return; }
@@ -404,13 +417,28 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     });
                 return out;
             }
-            function categoryOptions(allowOnlyRoot = false){
-                return flattenCategories()
-                    .filter(({category}) => !allowOnlyRoot || category.parent_id === null)
-                    .map(({category, depth}) => {
-                        const indent = '&nbsp;'.repeat(depth * 4);
-                        return `<option value="${esc(category.id)}">${indent}${esc(categoryName(category))}</option>`;
-                    }).join('');
+            function childrenByParent(){
+                const map = {};
+                normalizedCategories().forEach(c => {
+                    const key = c.parent_id ?? '__root__';
+                    if(!map[key]){ map[key] = []; }
+                    map[key].push(c);
+                });
+                return map;
+            }
+            function productCategoryOptions(){
+                const childrenMap = childrenByParent();
+                return rootCategories().map(root => {
+                    const children = childrenMap[root.id] || [];
+                    if(children.length === 0){
+                        return `<option value="${esc(root.id)}">${esc(categoryName(root))}</option>`;
+                    }
+                    const head = `<option value="" disabled>${esc(categoryName(root))}</option>`;
+                    const childOptions = children
+                        .map(child => `<option value="${esc(child.id)}">&nbsp;&nbsp;└─ ${esc(categoryName(child))}</option>`)
+                        .join('');
+                    return head + childOptions;
+                }).join('');
             }
 
             function renderStats(){
@@ -429,38 +457,77 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
             }
 
             function renderCategories(){
-                const productCountByCategory = {};
-                state.products.forEach(p=>productCountByCategory[p.category_id]=(productCountByCategory[p.category_id]||0)+1);
+                const directProductCountByCategory = {};
+                state.products.forEach(p=>directProductCountByCategory[p.category_id]=(directProductCountByCategory[p.category_id]||0)+1);
+                const childrenMap = childrenByParent();
+                const totalProductCountByCategory = {};
+                const countProductsRecursive = (categoryId) => {
+                    if(Object.prototype.hasOwnProperty.call(totalProductCountByCategory, categoryId)){
+                        return totalProductCountByCategory[categoryId];
+                    }
+                    const own = directProductCountByCategory[categoryId] || 0;
+                    const children = childrenMap[categoryId] || [];
+                    const childrenTotal = children.reduce((sum, child)=>sum + countProductsRecursive(child.id), 0);
+                    totalProductCountByCategory[categoryId] = own + childrenTotal;
+                    return totalProductCountByCategory[categoryId];
+                };
+                normalizedCategories().forEach(c => countProductsRecursive(c.id));
                 const rows = flattenCategories();
+                const roots = rootCategories();
                 categories.innerHTML = `
                     <h3>📦 Категории</h3>
-                    <form id="catForm" class="row">
-                        <input name="name_ru" placeholder="Название RU" required>
-                        <input name="name_en" placeholder="Название EN" required>
-                        <select name="parent_id">
-                            <option value="">Корневая категория</option>
-                            ${categoryOptions()}
-                        </select>
-                        <input name="description_ru" placeholder="Описание RU">
-                        <input name="description_en" placeholder="Описание EN">
-                        <button>Создать</button>
-                    </form>
+                    <div class="card">
+                        <h4 style="margin-top:0">+ Создать корневую категорию</h4>
+                        <form id="rootCatForm" class="row">
+                            <input name="name_ru" placeholder="Название RU" required>
+                            <input name="name_en" placeholder="Название EN" required>
+                            <input name="description_ru" placeholder="Описание RU">
+                            <input name="description_en" placeholder="Описание EN">
+                            <button>Создать корневую категорию</button>
+                        </form>
+                    </div>
+                    ${roots.length > 0 ? `
+                    <div class="card">
+                        <h4 style="margin-top:0">+ Создать подкатегорию</h4>
+                        <form id="subCatForm" class="row">
+                            <select name="parent_id" required>
+                                <option value="">Родительская категория</option>
+                                ${roots.map(root=>`<option value="${esc(root.id)}">${esc(categoryName(root))}</option>`).join('')}
+                            </select>
+                            <input name="name_ru" placeholder="Название RU" required>
+                            <input name="name_en" placeholder="Название EN" required>
+                            <input name="description_ru" placeholder="Описание RU">
+                            <input name="description_en" placeholder="Описание EN">
+                            <button>Создать подкатегорию</button>
+                        </form>
+                    </div>
+                    ` : ''}
                     <table><tr><th>Название</th><th>Товаров</th><th></th></tr>
                         ${rows.map(({category, depth})=>`<tr>
-                            <td>${'&nbsp;'.repeat(depth*4)}${esc(categoryName(category))}</td>
-                            <td>${productCountByCategory[category.id]||0}</td>
-                            <td><button data-del-cat="${esc(category.id)}">Удалить</button></td>
+                            <td>${depth === 0 ? `<b>📁 ${esc(categoryName(category))}</b>` : `${'&nbsp;'.repeat((depth-1)*4)}└─ 📂 ${esc(categoryName(category))}`}</td>
+                            <td>${totalProductCountByCategory[category.id]||0}</td>
+                            <td><button data-del-cat="${esc(category.id)}" ${((childrenMap[category.id]||[]).length > 0 || (directProductCountByCategory[category.id]||0) > 0) ? 'disabled title="Удаление недоступно"' : ''}>Удалить</button></td>
                         </tr>`).join('') || '<tr><td colspan="3">Нет категорий</td></tr>'}
                     </table>
                 `;
-                catForm.onsubmit = async (e)=>{
+                rootCatForm.onsubmit = async (e)=>{
                     e.preventDefault();
-                    const res = await fetch('?api=add_category',{method:'POST',body:new FormData(catForm)});
+                    const res = await fetch('?api=create_category',{method:'POST',body:new FormData(rootCatForm)});
                     const j = await res.json();
-                    if(!j.ok){ showToast(apiError(j, 'не удалось создать категорию'), 'error'); return; }
+                    if(!j.ok){ showToast(apiError(j, 'не удалось создать корневую категорию'), 'error'); return; }
                     await load();
-                    showToast(j.message || 'Категория создана');
+                    showToast('Корневая категория создана ✅');
                 };
+                if(roots.length > 0){
+                    subCatForm.onsubmit = async (e)=>{
+                        e.preventDefault();
+                        const res = await fetch('?api=create_category',{method:'POST',body:new FormData(subCatForm)});
+                        const j = await res.json();
+                        if(!j.ok){ showToast(apiError(j, 'не удалось создать подкатегорию'), 'error'); return; }
+                        await load();
+                        showToast('Подкатегория создана ✅');
+                    };
+                }
                 document.querySelectorAll('[data-del-cat]').forEach(btn=>btn.onclick=async()=>{
                     const fd = new FormData(); fd.append('id', btn.dataset.delCat);
                     const r = await fetch('?api=delete_category',{method:'POST',body:fd});
@@ -485,7 +552,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             <input name="name_en" placeholder="Название EN" required>
                             <select name="category_id" required>
                                 <option value="">Категория</option>
-                                ${categoryOptions()}
+                                ${productCategoryOptions()}
                             </select>
                             <input name="price" type="number" step="0.01" min="0" placeholder="Цена" required>
                             <label style="display:flex;align-items:center;gap:8px">
