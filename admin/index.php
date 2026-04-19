@@ -240,13 +240,17 @@ if (isset($_GET['api'])) {
         if (strlen($username) < 5) {
             jsonResponse(['ok' => false, 'error' => 'username_invalid_format', 'message' => 'Username must have at least 5 characters after sanitization (letters, numbers, underscore).'], 400);
         }
+        $currency = strtoupper(trim((string) ($_POST['currency'] ?? '')));
+        $currencySymbol = trim((string) ($_POST['currency_symbol'] ?? ''));
         $settings['admin_username'] = $username;
+        $settings['currency'] = mb_substr($currency, 0, 5) ?: 'USD';
+        $settings['currency_symbol'] = mb_substr($currencySymbol, 0, 5) ?: '$';
         $settings['help_text'] = [
             'ru' => trim((string) ($_POST['help_text_ru'] ?? '')),
             'en' => trim((string) ($_POST['help_text_en'] ?? '')),
         ];
         writeJson(SETTINGS_FILE, $settings);
-        jsonResponse(['ok' => true, 'message' => 'Настройки сохранены']);
+        jsonResponse(['ok' => true, 'message' => 'Настройки сохранены ✅']);
     }
 
     jsonResponse(['ok' => false, 'error' => 'unknown_api'], 404);
@@ -438,7 +442,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                         <input name="name_ru" placeholder="Название RU" required>
                         <input name="name_en" placeholder="Название EN" required>
                         <select name="parent_id">
-                            <option value="">Без родителя</option>
+                            <option value="" selected>Без родителя (корневая категория)</option>
                             ${categoryOptions()}
                         </select>
                         <input name="description_ru" placeholder="Описание RU">
@@ -447,7 +451,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     </form>
                     <table><tr><th>Название</th><th>Товаров</th><th></th></tr>
                         ${rows.map(({category, depth})=>`<tr>
-                            <td>${'&nbsp;'.repeat(depth*4)}${esc(categoryName(category))}</td>
+                            <td>${depth > 0 ? `${'&nbsp;'.repeat((depth-1)*4)}└─ ` : ''}${esc(categoryName(category))}</td>
                             <td>${productCountByCategory[category.id]||0}</td>
                             <td><button data-del-cat="${esc(category.id)}">Удалить</button></td>
                         </tr>`).join('') || '<tr><td colspan="3">Нет категорий</td></tr>'}
@@ -597,6 +601,8 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     <h3>⚙️ Настройки</h3>
                     <form id="settingsForm" class="row">
                         <input name="admin_username" value="${esc(state.settings.admin_username||'admin')}" placeholder="username администратора">
+                        <input type="text" name="currency" value="${esc(state.settings.currency||'USD')}" placeholder="USD" maxlength="5">
+                        <input type="text" name="currency_symbol" value="${esc(state.settings.currency_symbol||'$')}" placeholder="$" maxlength="5">
                         <textarea name="help_text_ru" placeholder="Текст помощи (RU)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.ru||'')}</textarea>
                         <textarea name="help_text_en" placeholder="Help text (EN)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.en||'')}</textarea>
                         <button>Сохранить</button>
