@@ -383,10 +383,16 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     $user = $users[$userId] ?? null;
     $product = $products[$productId] ?? null;
 
-    if (!$user || !$product || !($product['active'] ?? false) || (int) ($product['stock'] ?? 0) === 0) {
+    if (!$user || !$product || !($product['active'] ?? false)) {
         flock($lock, LOCK_UN);
         fclose($lock);
         editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        return;
+    }
+    if ((int) ($product['stock'] ?? 0) === 0) {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+        editMessageText($chatId, $messageId, 'Нет в наличии / Out of stock');
         return;
     }
 

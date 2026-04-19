@@ -83,7 +83,7 @@ if (isset($_GET['api'])) {
         ]);
     }
 
-    if ($api === 'add_category' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (($api === 'add_category' || $api === 'create_category') && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $categories = readJson(CATEGORIES_FILE);
         $id = generateId();
         $parentId = trim((string) ($_POST['parent_id'] ?? ''));
@@ -438,7 +438,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                         <input name="name_ru" placeholder="Название RU" required>
                         <input name="name_en" placeholder="Название EN" required>
                         <select name="parent_id">
-                            <option value="">Без родителя</option>
+                            <option value="">Корневая категория</option>
                             ${categoryOptions()}
                         </select>
                         <input name="description_ru" placeholder="Описание RU">
@@ -488,7 +488,11 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                                 ${categoryOptions()}
                             </select>
                             <input name="price" type="number" step="0.01" min="0" placeholder="Цена" required>
-                            <input name="stock" type="number" placeholder="Количество (-1 = ∞)" value="-1" required>
+                            <label style="display:flex;align-items:center;gap:8px">
+                                <input id="stockUnlimited" type="checkbox" checked>
+                                Неограничено
+                            </label>
+                            <input id="stockInput" name="stock" type="number" min="0" step="1" placeholder="Количество" value="1" style="display:none" disabled>
                         </div>
                         <div id="dropZone" class="drop" style="margin-top:10px">Перетащите файлы сюда или выберите вручную</div>
                         <input id="fileInput" type="file" name="files[]" multiple style="margin-top:10px">
@@ -511,7 +515,14 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 const input = document.getElementById('fileInput');
                 const names = document.getElementById('fileNames');
                 const dz = document.getElementById('dropZone');
+                const stockUnlimited = document.getElementById('stockUnlimited');
+                const stockInput = document.getElementById('stockInput');
                 const refreshNames = ()=>{ names.textContent = [...input.files].map(f=>f.name).join(', '); };
+                const syncStockInput = ()=>{
+                    const unlimited = !!stockUnlimited.checked;
+                    stockInput.disabled = unlimited;
+                    stockInput.style.display = unlimited ? 'none' : '';
+                };
                 input.onchange = refreshNames;
                 dz.ondragover = (e)=>{e.preventDefault(); dz.style.borderColor='#5c89ff';};
                 dz.ondragleave = ()=>{dz.style.borderColor='';};
@@ -520,11 +531,23 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     input.files = e.dataTransfer.files;
                     refreshNames();
                 };
+                stockUnlimited.onchange = syncStockInput;
+                syncStockInput();
 
                 productForm.onsubmit = async (e)=>{
                     e.preventDefault();
                     if(!input.files.length){ showToast('Ошибка: выберите файлы', 'error'); return; }
                     const fd = new FormData(productForm);
+                    if(stockUnlimited.checked){
+                        fd.set('stock', '-1');
+                    }else{
+                        const stock = Number(stockInput.value);
+                        if(!Number.isFinite(stock) || stock < 0){
+                            showToast('Ошибка: укажите корректное количество', 'error');
+                            return;
+                        }
+                        fd.set('stock', String(Math.floor(stock)));
+                    }
                     const xhr = new XMLHttpRequest();
                     xhr.upload.onprogress = (ev)=>{ if(ev.lengthComputable){ uploadBar.style.width = ((ev.loaded/ev.total)*100).toFixed(1) + '%'; } };
                     xhr.onreadystatechange = async ()=>{
