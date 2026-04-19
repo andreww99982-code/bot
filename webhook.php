@@ -10,7 +10,7 @@ $rawBody = file_get_contents('php://input');
 if ($rawBody === false) {
     $rawBody = '';
 }
-$debugBody = mb_substr($rawBody, 0, 4000);
+$debugBody = substr($rawBody, 0, 4000);
 if (strlen($rawBody) > 4000) {
     $debugBody .= '...[truncated]';
 }
