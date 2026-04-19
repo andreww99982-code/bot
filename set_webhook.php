@@ -27,6 +27,14 @@ if (WEBHOOK_SECRET !== '') {
 }
 
 $result = apiRequest('setWebhook', $params) ?? ['ok' => false, 'description' => 'No response from Telegram API'];
+$commandsResult = apiRequest('setMyCommands', [
+    'commands' => [
+        ['command' => 'start', 'description' => 'Запустить бота / Start the bot'],
+    ],
+]) ?? ['ok' => false, 'description' => 'No response from Telegram API'];
 
 header('Content-Type: application/json; charset=utf-8');
-echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+echo json_encode([
+    'setWebhook' => $result,
+    'setMyCommands' => $commandsResult,
+], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);

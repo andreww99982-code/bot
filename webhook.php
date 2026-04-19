@@ -228,7 +228,6 @@ function findChildCategories(array $categories, string $parentId): array
 function showCatalog(int $chatId, int $messageId, string $lang, ?string $parentId): void
 {
     $categories = readJson(CATEGORIES_FILE);
-    $products = readJson(PRODUCTS_FILE);
 
     if (!$categories) {
         editMessageText($chatId, $messageId, t('no_categories', $lang), [
@@ -248,22 +247,8 @@ function showCatalog(int $chatId, int $messageId, string $lang, ?string $parentI
             continue;
         }
 
-        $count = 0;
-        foreach ($products as $product) {
-            if (($product['category_id'] ?? '') !== ($category['id'] ?? '')) {
-                continue;
-            }
-            if (!($product['active'] ?? false)) {
-                continue;
-            }
-            $stock = (int) ($product['stock'] ?? 0);
-            if ($stock !== 0) {
-                $count++;
-            }
-        }
         $name = (string) ($category['name'][$lang] ?? $category['name']['ru'] ?? 'Category');
-        $text .= '• ' . $name . ' (' . $count . ")\n";
-        $buttons[] = [['text' => $name . ' (' . $count . ')', 'callback_data' => 'cat:' . $category['id']]];
+        $buttons[] = [['text' => $name, 'callback_data' => 'cat:' . $category['id']]];
     }
 
     if (!$buttons) {
@@ -298,22 +283,8 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
         $text = t('catalog_title', $lang) . "\n\n";
         $buttons = [];
         foreach ($children as $child) {
-            $count = 0;
-            foreach ($products as $product) {
-                if (($product['category_id'] ?? '') !== ($child['id'] ?? '')) {
-                    continue;
-                }
-                if (!($product['active'] ?? false)) {
-                    continue;
-                }
-                $stock = (int) ($product['stock'] ?? 0);
-                if ($stock !== 0) {
-                    $count++;
-                }
-            }
             $name = (string) ($child['name'][$lang] ?? $child['name']['ru'] ?? 'Category');
-            $text .= '• ' . $name . ' (' . $count . ")\n";
-            $buttons[] = [['text' => $name . ' (' . $count . ')', 'callback_data' => 'cat:' . $child['id']]];
+            $buttons[] = [['text' => $name, 'callback_data' => 'cat:' . $child['id']]];
         }
 
         $backTarget = isRootCategory($category) ? 'menu:catalog' : ('cat:' . (string) $category['parent_id']);
