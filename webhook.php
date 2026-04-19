@@ -1,8 +1,8 @@
 <?php
 // Debug log for every incoming request (before any processing)
 $logsDir = __DIR__ . '/logs';
-if (!is_dir($logsDir)) {
-    @mkdir($logsDir, 0755, true);
+if (!is_dir($logsDir) && !mkdir($logsDir, 0755, true) && !is_dir($logsDir)) {
+    error_log('Failed to create logs directory: ' . $logsDir);
 }
 
 $requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';

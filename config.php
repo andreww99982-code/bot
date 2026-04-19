@@ -19,8 +19,8 @@ define('ADMIN_IDS',      getenv('ADMIN_IDS')       ?: '');
 
 // Paths
 define('LOG_DIR', __DIR__ . '/logs');
-if (!is_dir(LOG_DIR)) {
-    mkdir(LOG_DIR, 0755, true);
+if (!is_dir(LOG_DIR) && !mkdir(LOG_DIR, 0755, true) && !is_dir(LOG_DIR)) {
+    error_log('Failed to create logs directory: ' . LOG_DIR);
 }
 
 // Telegram Bot API base URL
