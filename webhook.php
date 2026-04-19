@@ -1,4 +1,29 @@
 <?php
+// Debug log for every incoming request (before any processing)
+$logsDir = __DIR__ . '/logs';
+if (!is_dir($logsDir)) {
+    @mkdir($logsDir, 0755, true);
+}
+
+$requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$rawBody = file_get_contents('php://input');
+if ($rawBody === false) {
+    $rawBody = '';
+}
+
+@file_put_contents(
+    $logsDir . '/debug.log',
+    date('Y-m-d H:i:s') . ' [' . $requestMethod . '] ' . $rawBody . PHP_EOL,
+    FILE_APPEND | LOCK_EX
+);
+
+if ($requestMethod !== 'POST') {
+    http_response_code(200);
+    header('Content-Type: application/json');
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
 /**
  * webhook.php — Telegram webhook entry point.
  *
@@ -20,8 +45,6 @@ if (WEBHOOK_SECRET !== '' && $incomingSecret !== WEBHOOK_SECRET) {
 }
 
 // ---- 2. Read and parse the incoming update ------------------------------
-
-$rawBody = file_get_contents('php://input');
 
 if (empty($rawBody)) {
     http_response_code(200);
@@ -152,4 +175,3 @@ function handleTextMessage(int $chatId, int $userId, string $text, array $messag
     $safe = htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     sendMessage($chatId, "You said: {$safe}");
 }
-

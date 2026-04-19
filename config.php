@@ -19,6 +19,9 @@ define('ADMIN_IDS',      getenv('ADMIN_IDS')       ?: '');
 
 // Paths
 define('LOG_DIR', __DIR__ . '/logs');
+if (!is_dir(LOG_DIR)) {
+    mkdir(LOG_DIR, 0755, true);
+}
 
 // Telegram Bot API base URL
 define('TELEGRAM_API', 'https://api.telegram.org/bot' . BOT_TOKEN);

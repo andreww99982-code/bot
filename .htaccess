@@ -6,6 +6,14 @@
     Deny from all
 </FilesMatch>
 
+# Explicitly allow POST requests to webhook endpoint
+<Files "webhook.php">
+    <Limit POST>
+        Order allow,deny
+        Allow from all
+    </Limit>
+</Files>
+
 # Prevent directory listings
 Options -Indexes
 
