@@ -138,12 +138,39 @@ function writeJson(string $file, array $data): bool
     return @file_put_contents($file, $json, LOCK_EX) !== false;
 }
 
+/**
+ * Generate RFC 4122 UUID v4.
+ */
 function generateId(): string
 {
     $bytes = random_bytes(16);
     $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
     $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
     return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
+}
+
+function resolveSaleFilePath(string $relativePath): ?string
+{
+    $base = realpath(FILES_DIR);
+    if ($base === false) {
+        return null;
+    }
+
+    $normalized = ltrim(str_replace('\\', '/', $relativePath), '/');
+    if (!str_starts_with($normalized, 'files/')) {
+        return null;
+    }
+
+    $target = realpath(FILES_DIR . '/' . substr($normalized, 6));
+    if ($target === false || !is_file($target)) {
+        return null;
+    }
+
+    if (!str_starts_with($target, $base . DIRECTORY_SEPARATOR)) {
+        return null;
+    }
+
+    return $target;
 }
 
 function logEvent(string $msg, string $file = 'events.log'): void
@@ -188,6 +215,7 @@ function t(string $key, string $lang, array $vars = []): string
             'insufficient' => 'Недостаточно средств. Не хватает: {need}',
             'purchase_ok' => '✅ Покупка успешна! Файл отправлен.',
             'purchase_missing_file' => 'Покупка проведена, но файл не найден. Свяжитесь с администратором.',
+            'purchase_busy' => 'Сервис временно занят. Попробуйте ещё раз через несколько секунд.',
             'product_not_found' => 'Товар не найден или недоступен.',
             'history_title' => 'История покупок:',
             'history_empty' => 'Покупок пока нет.',
@@ -215,6 +243,7 @@ function t(string $key, string $lang, array $vars = []): string
             'insufficient' => 'Insufficient balance. Missing: {need}',
             'purchase_ok' => '✅ Purchase completed! File sent.',
             'purchase_missing_file' => 'Purchase completed, but file is missing. Contact admin.',
+            'purchase_busy' => 'Service is busy now. Please try again in a few seconds.',
             'product_not_found' => 'Product not found or unavailable.',
             'history_title' => 'Purchase history:',
             'history_empty' => 'No purchases yet.',

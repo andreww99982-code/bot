@@ -132,6 +132,7 @@ if (isset($_GET['api'])) {
 
         $files = $_FILES['files'];
         $total = is_array($files['name']) ? count($files['name']) : 0;
+        $added = 0;
         for ($i = 0; $i < $total; $i++) {
             if ((int) ($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
                 continue;
@@ -139,11 +140,19 @@ if (isset($_GET['api'])) {
             $tmp = (string) ($files['tmp_name'][$i] ?? '');
             $name = basename((string) ($files['name'][$i] ?? ('file_' . $i)));
             if ($tmp !== '' && is_uploaded_file($tmp)) {
-                $zip->addFile($tmp, $name);
+                $content = @file_get_contents($tmp);
+                if ($content !== false) {
+                    $zip->addFromString(($i + 1) . '_' . $name, $content);
+                    $added++;
+                }
             }
         }
 
         $zip->close();
+        if ($added === 0) {
+            @unlink($archiveAbs);
+            jsonResponse(['ok' => false, 'error' => 'no_valid_files'], 400);
+        }
 
         $products = readJson(PRODUCTS_FILE);
         $products[$id] = [
@@ -170,8 +179,8 @@ if (isset($_GET['api'])) {
         $products = readJson(PRODUCTS_FILE);
         $product = $products[$id] ?? null;
         if ($product) {
-            $path = dirname(__DIR__) . '/' . ltrim((string) ($product['file'] ?? ''), '/');
-            if (is_file($path)) {
+            $path = resolveSaleFilePath((string) ($product['file'] ?? ''));
+            if ($path !== null) {
                 @unlink($path);
             }
             unset($products[$id]);
@@ -206,7 +215,11 @@ if (isset($_GET['api'])) {
 
     if ($api === 'save_settings' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $settings = readJson(SETTINGS_FILE);
-        $settings['admin_username'] = preg_replace('/[^a-zA-Z0-9_]/', '', (string) ($_POST['admin_username'] ?? 'admin')) ?: 'admin';
+        $username = preg_replace('/[^a-zA-Z0-9_]/', '', (string) ($_POST['admin_username'] ?? 'admin')) ?: 'admin';
+        if (strlen($username) < 5) {
+            jsonResponse(['ok' => false, 'error' => 'username_invalid_format', 'message' => 'Username must contain at least 5 characters: letters, numbers, underscore.'], 400);
+        }
+        $settings['admin_username'] = $username;
         writeJson(SETTINGS_FILE, $settings);
         jsonResponse(['ok' => true]);
     }
@@ -293,7 +306,16 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 document.getElementById(btn.dataset.tab).classList.remove('hidden');
             });
 
-            logoutBtn.onclick = async()=>{ await fetch('?api=logout'); location.reload(); };
+            logoutBtn.onclick = async()=>{
+                try{
+                    const res = await fetch('?api=logout');
+                    const j = await res.json();
+                    if(!j.ok){ alert('Не удалось выйти'); return; }
+                    location.reload();
+                }catch(_){
+                    alert('Не удалось выйти');
+                }
+            };
 
             function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));}
             function categoryName(c){return c?.name?.ru||c?.name?.en||'—'}

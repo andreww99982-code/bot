@@ -27,9 +27,9 @@ foreach ($requiredDirs as $dir) {
 }
 
 $defaults = [
-    USERS_FILE => (object) [],
-    CATEGORIES_FILE => (object) [],
-    PRODUCTS_FILE => (object) [],
+    USERS_FILE => [],
+    CATEGORIES_FILE => [],
+    PRODUCTS_FILE => [],
     SETTINGS_FILE => [
         'admin_username' => 'admin',
         'currency' => 'RUB',

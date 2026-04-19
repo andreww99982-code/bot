@@ -10,7 +10,12 @@ if (WEBHOOK_SECRET !== '' && !hash_equals(WEBHOOK_SECRET, $incomingSecret)) {
     exit('Forbidden');
 }
 
-$raw = file_get_contents('php://input') ?: '';
+$rawBody = file_get_contents('php://input');
+if ($rawBody === false) {
+    logError('Failed to read webhook input from php://input');
+    exit;
+}
+$raw = $rawBody;
 $update = json_decode($raw, true);
 
 http_response_code(200);
@@ -290,6 +295,9 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
 function processBuy(int $chatId, int $messageId, string $userId, string $lang, string $productId): void
 {
     $settings = readJson(SETTINGS_FILE);
+    if (!is_dir(DATA_DIR)) {
+        @mkdir(DATA_DIR, 0755, true);
+    }
     $lockPath = DATA_DIR . '/purchase.lock';
     $lock = fopen($lockPath, 'c+');
 
@@ -297,7 +305,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
         if (is_resource($lock)) {
             fclose($lock);
         }
-        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        editMessageText($chatId, $messageId, t('purchase_busy', $lang));
         return;
     }
 
@@ -364,8 +372,8 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
         'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
     ]);
 
-    $path = BASE_DIR . '/' . ltrim((string) $product['file'], '/');
-    if (!is_file($path)) {
+    $path = resolveSaleFilePath((string) $product['file']);
+    if ($path === null) {
         sendMessage($chatId, t('purchase_missing_file', $lang));
         return;
     }
@@ -457,8 +465,8 @@ function redownload(int $chatId, int $messageId, string $userId, string $lang, s
             continue;
         }
 
-        $path = BASE_DIR . '/' . ltrim((string) ($purchase['file'] ?? ''), '/');
-        if (!is_file($path)) {
+        $path = resolveSaleFilePath((string) ($purchase['file'] ?? ''));
+        if ($path === null) {
             sendMessage($chatId, t('purchase_missing_file', $lang));
             return;
         }
