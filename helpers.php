@@ -135,7 +135,27 @@ function writeJson(string $file, array $data): bool
         return false;
     }
 
-    return @file_put_contents($file, $json, LOCK_EX) !== false;
+    $dir = dirname($file);
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+        return false;
+    }
+
+    $tmp = tempnam($dir, 'json_');
+    if ($tmp === false) {
+        return false;
+    }
+
+    if (@file_put_contents($tmp, $json, LOCK_EX) === false) {
+        @unlink($tmp);
+        return false;
+    }
+
+    if (!@rename($tmp, $file)) {
+        @unlink($tmp);
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -217,7 +237,7 @@ function t(string $key, string $lang, array $vars = []): string
             'buy' => 'Купить',
             'account_title' => "👤 Личный кабинет\nИмя: {name}\nБаланс: {balance}\nКуплено товаров: {count}",
             'help_text' => "ℹ️ Помощь\n\nВыберите раздел в меню и следуйте подсказкам.",
-            'topup_text' => "Для пополнения баланса напишите администратору @{admin} и укажите ваш ID: {id}",
+            'topup_text' => "Для пополнения баланса напишите администратору: @{admin_username}\nВаш ID: {user_id}",
             'insufficient' => 'Недостаточно средств. Не хватает: {need}',
             'purchase_ok' => '✅ Покупка успешна! Файл отправлен.',
             'purchase_missing_file' => 'Покупка проведена, но файл не найден. Свяжитесь с администратором.',
@@ -245,7 +265,7 @@ function t(string $key, string $lang, array $vars = []): string
             'buy' => 'Buy',
             'account_title' => "👤 My Account\nName: {name}\nBalance: {balance}\nPurchased items: {count}",
             'help_text' => "ℹ️ Help\n\nChoose a section in the menu and follow the instructions.",
-            'topup_text' => 'To top up your balance, contact @{admin} and provide your ID: {id}',
+            'topup_text' => "To top up your balance, contact the administrator: @{admin_username}\nYour ID: {user_id}",
             'insufficient' => 'Insufficient balance. Missing: {need}',
             'purchase_ok' => '✅ Purchase completed! File sent.',
             'purchase_missing_file' => 'Purchase completed, but file is missing. Contact admin.',

@@ -71,7 +71,12 @@ if (isset($_GET['api'])) {
                 'revenue' => round($revenue, 2),
                 'latest' => array_slice($latest, 0, 10),
             ],
-            'categories' => array_values(readJson(CATEGORIES_FILE)),
+            'categories' => array_values(array_map(static function (array $category): array {
+                if (!array_key_exists('parent_id', $category)) {
+                    $category['parent_id'] = null;
+                }
+                return $category;
+            }, readJson(CATEGORIES_FILE))),
             'products' => array_values($products),
             'users_list' => array_values($users),
             'settings' => $settings,
@@ -81,8 +86,14 @@ if (isset($_GET['api'])) {
     if ($api === 'add_category' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $categories = readJson(CATEGORIES_FILE);
         $id = generateId();
+        $parentId = trim((string) ($_POST['parent_id'] ?? ''));
+        if ($parentId !== '' && !isset($categories[$parentId])) {
+            jsonResponse(['ok' => false, 'error' => 'bad_parent_category'], 400);
+        }
+
         $categories[$id] = [
             'id' => $id,
+            'parent_id' => $parentId !== '' ? $parentId : null,
             'name' => [
                 'ru' => trim((string) ($_POST['name_ru'] ?? '')),
                 'en' => trim((string) ($_POST['name_en'] ?? '')),
@@ -93,21 +104,31 @@ if (isset($_GET['api'])) {
             ],
         ];
         writeJson(CATEGORIES_FILE, $categories);
-        jsonResponse(['ok' => true]);
+        jsonResponse(['ok' => true, 'message' => 'Категория создана']);
     }
 
     if ($api === 'delete_category' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (string) ($_POST['id'] ?? '');
+        $categories = readJson(CATEGORIES_FILE);
+        if (!isset($categories[$id])) {
+            jsonResponse(['ok' => false, 'error' => 'category_not_found'], 404);
+        }
+
+        foreach ($categories as $category) {
+            if ((string) ($category['parent_id'] ?? '') === $id) {
+                jsonResponse(['ok' => false, 'error' => 'category_has_subcategories'], 400);
+            }
+        }
+
         $products = readJson(PRODUCTS_FILE);
         foreach ($products as $product) {
             if (($product['category_id'] ?? '') === $id) {
                 jsonResponse(['ok' => false, 'error' => 'category_has_products'], 400);
             }
         }
-        $categories = readJson(CATEGORIES_FILE);
         unset($categories[$id]);
         writeJson(CATEGORIES_FILE, $categories);
-        jsonResponse(['ok' => true]);
+        jsonResponse(['ok' => true, 'message' => 'Категория удалена']);
     }
 
     if ($api === 'add_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -171,7 +192,7 @@ if (isset($_GET['api'])) {
         ];
 
         writeJson(PRODUCTS_FILE, $products);
-        jsonResponse(['ok' => true]);
+        jsonResponse(['ok' => true, 'message' => 'Товар добавлен']);
     }
 
     if ($api === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -186,7 +207,7 @@ if (isset($_GET['api'])) {
             unset($products[$id]);
             writeJson(PRODUCTS_FILE, $products);
         }
-        jsonResponse(['ok' => true]);
+        jsonResponse(['ok' => true, 'message' => 'Товар удалён']);
     }
 
     if ($api === 'topup' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -203,7 +224,7 @@ if (isset($_GET['api'])) {
 
         $users[$id]['balance'] = round((float) ($users[$id]['balance'] ?? 0) + $amount, 2);
         writeJson(USERS_FILE, $users);
-        jsonResponse(['ok' => true]);
+        jsonResponse(['ok' => true, 'message' => 'Баланс пополнен']);
     }
 
     if ($api === 'user_history') {
@@ -220,8 +241,12 @@ if (isset($_GET['api'])) {
             jsonResponse(['ok' => false, 'error' => 'username_invalid_format', 'message' => 'Username must have at least 5 characters after sanitization (letters, numbers, underscore).'], 400);
         }
         $settings['admin_username'] = $username;
+        $settings['help_text'] = [
+            'ru' => trim((string) ($_POST['help_text_ru'] ?? '')),
+            'en' => trim((string) ($_POST['help_text_en'] ?? '')),
+        ];
         writeJson(SETTINGS_FILE, $settings);
-        jsonResponse(['ok' => true]);
+        jsonResponse(['ok' => true, 'message' => 'Настройки сохранены']);
     }
 
     jsonResponse(['ok' => false, 'error' => 'unknown_api'], 404);
@@ -254,6 +279,11 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
         .stat{background:#101624;border:1px solid #2a3345;border-radius:10px;padding:12px}
         .bar{height:8px;background:#1c2230;border-radius:100px;overflow:hidden}
         .bar>span{display:block;height:100%;background:#3f7cff;width:0}
+        .toast-container{position:fixed;bottom:20px;right:20px;z-index:9999}
+        .toast{padding:12px 20px;border-radius:8px;margin-top:8px;color:#fff;font-size:14px;opacity:0;transition:opacity .3s}
+        .toast.success{background:#22c55e}
+        .toast.error{background:#ef4444}
+        .toast.show{opacity:1}
     </style>
 </head>
 <body>
@@ -299,6 +329,22 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
 
         <script>
             const state = {categories:[],products:[],users:[],settings:{},stats:{}};
+            const errorText = {
+                unauthorized: 'Ошибка: требуется авторизация',
+                wrong_password: 'Ошибка: неверный пароль',
+                category_has_products: 'Ошибка: у категории есть товары',
+                category_has_subcategories: 'Ошибка: у категории есть подкатегории',
+                category_not_found: 'Ошибка: категория не найдена',
+                bad_category: 'Ошибка: категория не найдена',
+                bad_parent_category: 'Ошибка: родительская категория не найдена',
+                bad_amount: 'Ошибка: некорректная сумма',
+                user_not_found: 'Ошибка: пользователь не найден',
+                no_files: 'Ошибка: выберите файлы',
+                no_valid_files: 'Ошибка: нет валидных файлов',
+                zip_create_failed: 'Ошибка: не удалось создать архив',
+                username_invalid_format: 'Ошибка: username администратора некорректный',
+                unknown_api: 'Ошибка: неизвестный API-метод',
+            };
 
             const tabButtons = [...document.querySelectorAll('[data-tab]')];
             tabButtons.forEach(btn=>btn.onclick=()=>{
@@ -306,19 +352,66 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 document.getElementById(btn.dataset.tab).classList.remove('hidden');
             });
 
+            function showToast(message, type = 'success'){
+                let container = document.getElementById('toast-container');
+                if(!container){
+                    container = document.createElement('div');
+                    container.id = 'toast-container';
+                    container.className = 'toast-container';
+                    document.body.appendChild(container);
+                }
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                toast.textContent = message;
+                container.appendChild(toast);
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 300);
+                }, 3000);
+            }
+
+            function apiError(j, fallback = 'Ошибка запроса'){
+                if(j?.message){ return `Ошибка: ${j.message}`; }
+                if(j?.error && errorText[j.error]){ return errorText[j.error]; }
+                if(j?.error){ return `Ошибка: ${j.error}`; }
+                return `Ошибка: ${fallback}`;
+            }
+
             logoutBtn.onclick = async()=>{
                 try{
                     const res = await fetch('?api=logout');
                     const j = await res.json();
-                    if(!j.ok){ alert('Не удалось выйти'); return; }
+                    if(!j.ok){ showToast(apiError(j, 'не удалось выйти'), 'error'); return; }
                     location.reload();
                 }catch(_){
-                    alert('Не удалось выйти');
+                    showToast('Ошибка: не удалось выйти', 'error');
                 }
             };
 
             function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));}
             function categoryName(c){return c?.name?.ru||c?.name?.en||'—'}
+            function withParent(category){ return {...category, parent_id: category?.parent_id || null}; }
+            function flattenCategories(parentId = null, depth = 0, out = [], seen = new Set()){
+                state.categories
+                    .map(withParent)
+                    .filter(c => c.parent_id === parentId)
+                    .forEach(c => {
+                        if(seen.has(c.id)){ return; }
+                        seen.add(c.id);
+                        out.push({category: c, depth});
+                        flattenCategories(c.id, depth + 1, out, seen);
+                    });
+                return out;
+            }
+            function categoryOptions(allowOnlyRoot = false){
+                return flattenCategories()
+                    .filter(({category}) => !allowOnlyRoot || category.parent_id === null)
+                    .map(({category, depth}) => {
+                        const indent = '&nbsp;'.repeat(depth * 4);
+                        return `<option value="${esc(category.id)}">${indent}${esc(categoryName(category))}</option>`;
+                    }).join('');
+            }
 
             function renderStats(){
                 stats.innerHTML = `
@@ -338,20 +431,25 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
             function renderCategories(){
                 const productCountByCategory = {};
                 state.products.forEach(p=>productCountByCategory[p.category_id]=(productCountByCategory[p.category_id]||0)+1);
+                const rows = flattenCategories();
                 categories.innerHTML = `
                     <h3>📦 Категории</h3>
                     <form id="catForm" class="row">
                         <input name="name_ru" placeholder="Название RU" required>
                         <input name="name_en" placeholder="Название EN" required>
+                        <select name="parent_id">
+                            <option value="">Без родителя</option>
+                            ${categoryOptions()}
+                        </select>
                         <input name="description_ru" placeholder="Описание RU">
                         <input name="description_en" placeholder="Описание EN">
                         <button>Создать</button>
                     </form>
                     <table><tr><th>Название</th><th>Товаров</th><th></th></tr>
-                        ${state.categories.map(c=>`<tr>
-                            <td>${esc(categoryName(c))}</td>
-                            <td>${productCountByCategory[c.id]||0}</td>
-                            <td><button data-del-cat="${esc(c.id)}">Удалить</button></td>
+                        ${rows.map(({category, depth})=>`<tr>
+                            <td>${'&nbsp;'.repeat(depth*4)}${esc(categoryName(category))}</td>
+                            <td>${productCountByCategory[category.id]||0}</td>
+                            <td><button data-del-cat="${esc(category.id)}">Удалить</button></td>
                         </tr>`).join('') || '<tr><td colspan="3">Нет категорий</td></tr>'}
                     </table>
                 `;
@@ -359,18 +457,26 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     e.preventDefault();
                     const res = await fetch('?api=add_category',{method:'POST',body:new FormData(catForm)});
                     const j = await res.json();
-                    if(j.ok) await load();
+                    if(!j.ok){ showToast(apiError(j, 'не удалось создать категорию'), 'error'); return; }
+                    await load();
+                    showToast(j.message || 'Категория создана');
                 };
                 document.querySelectorAll('[data-del-cat]').forEach(btn=>btn.onclick=async()=>{
                     const fd = new FormData(); fd.append('id', btn.dataset.delCat);
                     const r = await fetch('?api=delete_category',{method:'POST',body:fd});
                     const j = await r.json();
-                    if(!j.ok){ alert('Категорию нельзя удалить, есть товары'); return; }
+                    if(!j.ok){ showToast(apiError(j, 'не удалось удалить категорию'), 'error'); return; }
                     await load();
+                    showToast(j.message || 'Категория удалена');
                 });
             }
 
             function renderProducts(){
+                const categoryLabelById = {};
+                flattenCategories().forEach(({category, depth}) => {
+                    categoryLabelById[category.id] = `${'— '.repeat(depth)}${categoryName(category)}`;
+                });
+
                 products.innerHTML = `
                     <h3>🗂 Товары</h3>
                     <form id="productForm">
@@ -379,7 +485,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             <input name="name_en" placeholder="Название EN" required>
                             <select name="category_id" required>
                                 <option value="">Категория</option>
-                                ${state.categories.map(c=>`<option value="${esc(c.id)}">${esc(categoryName(c))}</option>`).join('')}
+                                ${categoryOptions()}
                             </select>
                             <input name="price" type="number" step="0.01" min="0" placeholder="Цена" required>
                             <input name="stock" type="number" placeholder="Количество (-1 = ∞)" value="-1" required>
@@ -391,17 +497,14 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                         <button>Добавить товар</button>
                     </form>
                     <table style="margin-top:16px"><tr><th>Название</th><th>Категория</th><th>Цена</th><th>Остаток</th><th>Продано</th><th></th></tr>
-                        ${state.products.map(p=>{
-                            const c = state.categories.find(x=>x.id===p.category_id);
-                            return `<tr>
-                                <td>${esc(p.name?.ru||p.name?.en||'—')}</td>
-                                <td>${esc(categoryName(c)||'—')}</td>
-                                <td>${Number(p.price||0).toFixed(2)}</td>
-                                <td>${Number(p.stock) < 0 ? '∞' : esc(p.stock)}</td>
-                                <td>${esc(p.sold||0)}</td>
-                                <td><button data-del-prod="${esc(p.id)}">Удалить</button></td>
-                            </tr>`;
-                        }).join('') || '<tr><td colspan="6">Нет товаров</td></tr>'}
+                        ${state.products.map(p=>`<tr>
+                            <td>${esc(p.name?.ru||p.name?.en||'—')}</td>
+                            <td>${esc(categoryLabelById[p.category_id]||'—')}</td>
+                            <td>${Number(p.price||0).toFixed(2)}</td>
+                            <td>${Number(p.stock) < 0 ? '∞' : esc(p.stock)}</td>
+                            <td>${esc(p.sold||0)}</td>
+                            <td><button data-del-prod="${esc(p.id)}">Удалить</button></td>
+                        </tr>`).join('') || '<tr><td colspan="6">Нет товаров</td></tr>'}
                     </table>
                 `;
 
@@ -420,7 +523,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
 
                 productForm.onsubmit = async (e)=>{
                     e.preventDefault();
-                    if(!input.files.length){ alert('Выберите файлы'); return; }
+                    if(!input.files.length){ showToast('Ошибка: выберите файлы', 'error'); return; }
                     const fd = new FormData(productForm);
                     const xhr = new XMLHttpRequest();
                     xhr.upload.onprogress = (ev)=>{ if(ev.lengthComputable){ uploadBar.style.width = ((ev.loaded/ev.total)*100).toFixed(1) + '%'; } };
@@ -429,9 +532,10 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             uploadBar.style.width = '0%';
                             try{
                                 const j = JSON.parse(xhr.responseText || '{}');
-                                if(!j.ok){ alert('Ошибка загрузки'); return; }
+                                if(!j.ok){ showToast(apiError(j, 'ошибка загрузки'), 'error'); return; }
                                 await load();
-                            }catch(_){ alert('Ошибка ответа сервера'); }
+                                showToast(j.message || 'Товар добавлен');
+                            }catch(_){ showToast('Ошибка: некорректный ответ сервера', 'error'); }
                         }
                     };
                     xhr.open('POST','?api=add_product');
@@ -442,7 +546,9 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     const fd = new FormData(); fd.append('id', btn.dataset.delProd);
                     const res = await fetch('?api=delete_product',{method:'POST',body:fd});
                     const j = await res.json();
-                    if(j.ok) await load();
+                    if(!j.ok){ showToast(apiError(j, 'не удалось удалить товар'), 'error'); return; }
+                    await load();
+                    showToast(j.message || 'Товар удалён');
                 });
             }
 
@@ -471,15 +577,18 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     const fd = new FormData(); fd.append('id', btn.dataset.topup); fd.append('amount', amount);
                     const res = await fetch('?api=topup',{method:'POST',body:fd});
                     const j = await res.json();
-                    if(!j.ok){ alert('Ошибка пополнения'); return; }
+                    if(!j.ok){ showToast(apiError(j, 'ошибка пополнения'), 'error'); return; }
                     await load();
+                    showToast(j.message || 'Баланс пополнен');
                 });
 
                 document.querySelectorAll('[data-history]').forEach(btn=>btn.onclick=async()=>{
                     const res = await fetch('?api=user_history&id='+encodeURIComponent(btn.dataset.history));
                     const j = await res.json();
+                    if(!j.ok){ showToast(apiError(j, 'не удалось загрузить историю'), 'error'); return; }
                     const list = (j.history||[]).map(x=>`${x.date} — ${x.product_name} — ${Number(x.price||0).toFixed(2)}`).join('<br>');
                     historyBox.innerHTML = list || 'История пуста';
+                    showToast('История загружена');
                 });
             }
 
@@ -488,6 +597,8 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     <h3>⚙️ Настройки</h3>
                     <form id="settingsForm" class="row">
                         <input name="admin_username" value="${esc(state.settings.admin_username||'admin')}" placeholder="username администратора">
+                        <textarea name="help_text_ru" placeholder="Текст помощи (RU)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.ru||'')}</textarea>
+                        <textarea name="help_text_en" placeholder="Help text (EN)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.en||'')}</textarea>
                         <button>Сохранить</button>
                     </form>
                     <div class="muted">Этот username показывается пользователям в инструкции пополнения.</div>
@@ -497,18 +608,21 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     e.preventDefault();
                     const res = await fetch('?api=save_settings',{method:'POST',body:new FormData(settingsForm)});
                     const j = await res.json();
-                    if(j.ok) await load();
+                    if(!j.ok){ showToast(apiError(j, 'не удалось сохранить настройки'), 'error'); return; }
+                    await load();
+                    showToast(j.message || 'Настройки сохранены');
                 };
             }
 
             async function load(){
                 const res = await fetch('?api=bootstrap');
                 const j = await res.json();
-                if(!j.ok){ alert('Ошибка загрузки данных'); return; }
-                state.categories = j.categories||[];
+                if(!j.ok){ showToast(apiError(j, 'ошибка загрузки данных'), 'error'); return; }
+                state.categories = (j.categories||[]).map(withParent);
                 state.products = j.products||[];
                 state.users = j.users_list||[];
                 state.settings = j.settings||{};
+                state.settings.help_text = state.settings.help_text || {ru:'',en:''};
                 state.stats = j.stats||{};
                 renderStats(); renderCategories(); renderProducts(); renderUsers(); renderSettings();
             }
@@ -516,5 +630,6 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
         </script>
     <?php endif; ?>
 </div>
+<div id="toast-container" class="toast-container"></div>
 </body>
 </html>
