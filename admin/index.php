@@ -217,7 +217,7 @@ if (isset($_GET['api'])) {
         $settings = readJson(SETTINGS_FILE);
         $username = preg_replace('/[^a-zA-Z0-9_]/', '', (string) ($_POST['admin_username'] ?? 'admin')) ?: 'admin';
         if (strlen($username) < 5) {
-            jsonResponse(['ok' => false, 'error' => 'username_invalid_format', 'message' => 'Username must contain at least 5 characters: letters, numbers, underscore.'], 400);
+            jsonResponse(['ok' => false, 'error' => 'username_invalid_format', 'message' => 'Username must have at least 5 characters after sanitization (letters, numbers, underscore).'], 400);
         }
         $settings['admin_username'] = $username;
         writeJson(SETTINGS_FILE, $settings);

@@ -156,12 +156,18 @@ function resolveSaleFilePath(string $relativePath): ?string
         return null;
     }
 
+    $prefix = trim(str_replace('\\', '/', basename(FILES_DIR)), '/') . '/';
     $normalized = ltrim(str_replace('\\', '/', $relativePath), '/');
-    if (!str_starts_with($normalized, 'files/')) {
+    if (!str_starts_with($normalized, $prefix)) {
         return null;
     }
 
-    $target = realpath(FILES_DIR . '/' . substr($normalized, 6));
+    $remainder = substr($normalized, strlen($prefix));
+    if ($remainder === '') {
+        return null;
+    }
+
+    $target = realpath(FILES_DIR . '/' . $remainder);
     if ($target === false || !is_file($target)) {
         return null;
     }

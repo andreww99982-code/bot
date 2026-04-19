@@ -15,8 +15,7 @@ if ($rawBody === false) {
     logError('Failed to read webhook input from php://input');
     exit;
 }
-$raw = $rawBody;
-$update = json_decode($raw, true);
+$update = json_decode($rawBody, true);
 
 http_response_code(200);
 header('Content-Type: application/json');
