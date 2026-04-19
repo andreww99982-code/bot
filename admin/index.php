@@ -242,6 +242,7 @@ if (isset($_GET['api'])) {
         }
         $currency = strtoupper(trim((string) ($_POST['currency'] ?? '')));
         $currencySymbol = trim((string) ($_POST['currency_symbol'] ?? ''));
+        $currency = preg_replace('/[^A-Z]/', '', $currency) ?? '';
         $settings['admin_username'] = $username;
         $settings['currency'] = mb_substr($currency, 0, 5) ?: 'USD';
         $settings['currency_symbol'] = mb_substr($currencySymbol, 0, 5) ?: '$';
@@ -601,7 +602,9 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     <h3>⚙️ Настройки</h3>
                     <form id="settingsForm" class="row">
                         <input name="admin_username" value="${esc(state.settings.admin_username||'admin')}" placeholder="username администратора">
+                        <label>Валюта / Currency code</label>
                         <input type="text" name="currency" value="${esc(state.settings.currency||'USD')}" placeholder="USD" maxlength="5">
+                        <label>Символ валюты / Currency symbol</label>
                         <input type="text" name="currency_symbol" value="${esc(state.settings.currency_symbol||'$')}" placeholder="$" maxlength="5">
                         <textarea name="help_text_ru" placeholder="Текст помощи (RU)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.ru||'')}</textarea>
                         <textarea name="help_text_en" placeholder="Help text (EN)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.en||'')}</textarea>
