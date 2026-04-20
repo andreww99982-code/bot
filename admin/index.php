@@ -124,6 +124,63 @@ function createBundleFromUpload(string $productId, array $files, ?string &$error
     ];
 }
 
+function saveProductPreviewImage(string $productId, array $file, ?string &$error = null): ?string
+{
+    if ((int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        $error = 'preview_upload_failed';
+        return null;
+    }
+
+    $tmpName = (string) ($file['tmp_name'] ?? '');
+    if ($tmpName === '' || !is_uploaded_file($tmpName)) {
+        $error = 'preview_upload_failed';
+        return null;
+    }
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime = $finfo !== false ? (string) finfo_file($finfo, $tmpName) : '';
+    if ($finfo !== false) {
+        finfo_close($finfo);
+    }
+    if ($mime === '' || !str_starts_with($mime, 'image/')) {
+        $error = 'preview_invalid_type';
+        return null;
+    }
+
+    $extByMime = [
+        'image/jpeg' => 'jpg',
+        'image/pjpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'image/gif' => 'gif',
+    ];
+    $ext = $extByMime[$mime] ?? null;
+    if ($ext === null) {
+        $error = 'preview_invalid_type';
+        return null;
+    }
+
+    $productDir = FILES_DIR . '/' . $productId;
+    if (!is_dir($productDir) && !@mkdir($productDir, 0755, true) && !is_dir($productDir)) {
+        $error = 'preview_upload_failed';
+        return null;
+    }
+
+    foreach ((array) glob($productDir . '/preview.*') as $existing) {
+        if (is_file($existing)) {
+            @unlink($existing);
+        }
+    }
+
+    $targetAbs = $productDir . '/preview.' . $ext;
+    if (!@move_uploaded_file($tmpName, $targetAbs)) {
+        $error = 'preview_upload_failed';
+        return null;
+    }
+
+    return 'files/' . $productId . '/preview.' . $ext;
+}
+
 if (isset($_GET['api'])) {
     $api = (string) $_GET['api'];
 
@@ -253,7 +310,7 @@ if (isset($_GET['api'])) {
         jsonResponse(['ok' => true, 'message' => 'Категория удалена']);
     }
 
-    if ($api === 'add_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (($api === 'add_product' || $api === 'create_product') && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $categories = readJson(CATEGORIES_FILE);
         $categoryId = (string) ($_POST['category_id'] ?? '');
         if (!isset($categories[$categoryId])) {
@@ -275,6 +332,7 @@ if (isset($_GET['api'])) {
             ],
             'price' => (float) ($_POST['price'] ?? 0),
             'bundles' => [],
+            'preview' => null,
             'stock' => 0,
             'sold' => 0,
             'active' => false,
@@ -295,12 +353,66 @@ if (isset($_GET['api'])) {
                 $product['bundles'][] = $bundle;
             }
         }
+        if (isset($_FILES['preview_image']) && (int) ($_FILES['preview_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $previewError = null;
+            $previewPath = saveProductPreviewImage($id, (array) $_FILES['preview_image'], $previewError);
+            if ($previewPath === null) {
+                jsonResponse(['ok' => false, 'error' => $previewError ?? 'preview_upload_failed'], 400);
+            }
+            $product['preview'] = $previewPath;
+        }
 
         recalculateProductStock($product);
         $products[$id] = $product;
 
         writeJson(PRODUCTS_FILE, $products);
         jsonResponse(['ok' => true, 'message' => 'Товар добавлен']);
+    }
+
+    if ($api === 'edit_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $productId = trim((string) ($_POST['product_id'] ?? ''));
+        if ($productId === '') {
+            jsonResponse(['ok' => false, 'error' => 'product_not_found'], 404);
+        }
+
+        $products = readJson(PRODUCTS_FILE);
+        $product = $products[$productId] ?? null;
+        if (!is_array($product)) {
+            jsonResponse(['ok' => false, 'error' => 'product_not_found'], 404);
+        }
+
+        $categories = readJson(CATEGORIES_FILE);
+        $categoryId = trim((string) ($_POST['category_id'] ?? ''));
+        if ($categoryId === '' || !isset($categories[$categoryId])) {
+            jsonResponse(['ok' => false, 'error' => 'bad_category'], 400);
+        }
+
+        $product['category_id'] = $categoryId;
+        $product['name'] = [
+            'ru' => trim((string) ($_POST['name_ru'] ?? (($product['name']['ru'] ?? '')))),
+            'en' => trim((string) ($_POST['name_en'] ?? (($product['name']['en'] ?? '')))),
+        ];
+        $product['description'] = [
+            'ru' => trim((string) ($_POST['desc_ru'] ?? ($_POST['description_ru'] ?? ($product['description']['ru'] ?? '')))),
+            'en' => trim((string) ($_POST['desc_en'] ?? ($_POST['description_en'] ?? ($product['description']['en'] ?? '')))),
+        ];
+        $product['price'] = (float) ($_POST['price'] ?? ($product['price'] ?? 0));
+        $product['preview'] = $product['preview'] ?? null;
+
+        if (isset($_FILES['preview_image']) && (int) ($_FILES['preview_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $previewError = null;
+            $previewPath = saveProductPreviewImage($productId, (array) $_FILES['preview_image'], $previewError);
+            if ($previewPath === null) {
+                jsonResponse(['ok' => false, 'error' => $previewError ?? 'preview_upload_failed'], 400);
+            }
+            $product['preview'] = $previewPath;
+        }
+
+        recalculateProductStock($product);
+        $products[$productId] = $product;
+        writeJson(PRODUCTS_FILE, $products);
+
+        jsonResponse(['ok' => true, 'message' => 'Товар обновлён ✅']);
     }
 
     if ($api === 'add_bundle' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -380,6 +492,10 @@ if (isset($_GET['api'])) {
                 if ($path !== null) {
                     @unlink($path);
                 }
+            }
+            $previewPath = resolveSaleFilePath((string) ($product['preview'] ?? ''));
+            if ($previewPath !== null) {
+                @unlink($previewPath);
             }
             $legacyPath = resolveSaleFilePath((string) ($product['file'] ?? ''));
             if ($legacyPath !== null) {
@@ -540,6 +656,8 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 no_files: 'Ошибка: выберите файлы',
                 no_valid_files: 'Ошибка: нет валидных файлов',
                 zip_create_failed: 'Ошибка: не удалось создать архив',
+                preview_invalid_type: 'Ошибка: поддерживаются только изображения (jpg/png/webp/gif)',
+                preview_upload_failed: 'Ошибка: не удалось загрузить изображение',
                 product_not_found: 'Ошибка: товар не найден',
                 bundle_not_found: 'Ошибка: архив не найден',
                 username_invalid_format: 'Ошибка: username администратора некорректный',
@@ -731,6 +849,10 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 flattenCategories().forEach(({category, depth}) => {
                     categoryLabelById[category.id] = `${'— '.repeat(depth)}${categoryName(category)}`;
                 });
+                const flatCategoryOptions = flattenCategories().map(({category, depth}) => ({
+                    id: String(category.id || ''),
+                    label: `${'— '.repeat(depth)}${categoryName(category)}`,
+                }));
                 const query = uiState.productsQuery.trim().toLowerCase();
                 const filteredProducts = state.products.filter((p) => {
                     if(query === ''){ return true; }
@@ -763,6 +885,8 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             </select>
                             <input name="price" type="number" step="0.01" min="0" placeholder="Цена" required>
                         </div>
+                        <label style="display:block;margin-top:10px">Скриншот / Preview image (необязательно)</label>
+                        <input type="file" name="preview_image" accept="image/jpeg,image/png,image/webp,image/gif">
                         <div id="dropZone" class="drop" style="margin-top:10px">Перетащите файлы сюда или выберите вручную (необязательно)</div>
                         <input id="fileInput" type="file" name="files[]" multiple style="margin-top:10px">
                         <div id="fileNames" class="muted"></div>
@@ -772,6 +896,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     <table style="margin-top:16px"><tr><th>Название</th><th>Категория</th><th>Цена</th><th>Остаток</th><th>Продано</th><th></th></tr>
                         ${pageProducts.map(p=>{
                             const bundles = Array.isArray(p.bundles) ? p.bundles : [];
+                            const editCategoryOptions = flatCategoryOptions.map(opt => `<option value="${esc(opt.id)}" ${String(p.category_id || '') === opt.id ? 'selected' : ''}>${esc(opt.label)}</option>`).join('');
                             return `<tr>
                             <td>${esc(p.name?.ru||p.name?.en||'—')}</td>
                             <td>${esc(categoryLabelById[p.category_id]||'—')}</td>
@@ -780,7 +905,31 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             <td>${esc(p.sold||0)}</td>
                             <td>
                                 <button data-toggle-bundles="${esc(p.id)}">📦 Архивы (${bundles.length})</button>
+                                <button data-toggle-edit="${esc(p.id)}">✏️ Редактировать</button>
                                 <button data-del-prod="${esc(p.id)}">Удалить</button>
+                            </td>
+                        </tr>
+                        <tr id="edit-row-${esc(p.id)}" class="hidden">
+                            <td colspan="6">
+                                <form data-edit-product="${esc(p.id)}">
+                                    <input type="hidden" name="product_id" value="${esc(p.id)}">
+                                    <div class="row">
+                                        <input name="name_ru" placeholder="Название RU" required value="${esc(p.name?.ru || '')}">
+                                        <input name="name_en" placeholder="Название EN" required value="${esc(p.name?.en || '')}">
+                                        <input name="desc_ru" placeholder="Описание RU" value="${esc(p.description?.ru || '')}">
+                                        <input name="desc_en" placeholder="Описание EN" value="${esc(p.description?.en || '')}">
+                                        <select name="category_id" required>
+                                            ${editCategoryOptions}
+                                        </select>
+                                        <input name="price" type="number" step="0.01" min="0" placeholder="Цена" required value="${Number(p.price || 0).toFixed(2)}">
+                                    </div>
+                                    <div class="row" style="margin-top:8px;align-items:center">
+                                        <label>Новый скриншот (необязательно)</label>
+                                        <input type="file" name="preview_image" accept="image/jpeg,image/png,image/webp,image/gif">
+                                        <span class="muted">${p.preview ? `Текущий: ${esc(p.preview)}` : 'Текущий: нет'}</span>
+                                    </div>
+                                    <button style="margin-top:8px">Сохранить</button>
+                                </form>
                             </td>
                         </tr>
                         <tr id="bundles-row-${esc(p.id)}" class="hidden">
@@ -858,13 +1007,26 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             }catch(_){ showToast('Ошибка: некорректный ответ сервера', 'error'); }
                         }
                     };
-                    xhr.open('POST','?api=add_product');
+                    xhr.open('POST','?api=create_product');
                     xhr.send(fd);
                 };
 
                 document.querySelectorAll('[data-toggle-bundles]').forEach(btn=>btn.onclick=()=>{
                     const row = document.getElementById(`bundles-row-${btn.dataset.toggleBundles}`);
                     if(row){ row.classList.toggle('hidden'); }
+                });
+                document.querySelectorAll('[data-toggle-edit]').forEach(btn=>btn.onclick=()=>{
+                    const row = document.getElementById(`edit-row-${btn.dataset.toggleEdit}`);
+                    if(row){ row.classList.toggle('hidden'); }
+                });
+                document.querySelectorAll('[data-edit-product]').forEach(form=>form.onsubmit=async(e)=>{
+                    e.preventDefault();
+                    const fd = new FormData(form);
+                    const res = await fetch('?api=edit_product',{method:'POST',body:fd});
+                    const j = await res.json();
+                    if(!j.ok){ showToast(apiError(j, 'не удалось обновить товар'), 'error'); return; }
+                    await load();
+                    showToast('Товар обновлён ✅');
                 });
 
                 document.querySelectorAll('[data-add-bundle]').forEach(form=>form.onsubmit=async(e)=>{

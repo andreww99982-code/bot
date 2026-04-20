@@ -265,6 +265,81 @@ function getProductStockFromBundles(array $product): int
     return count(normalizeBundles($product));
 }
 
+function sendProductPhotoCard(int $chatId, int $messageId, string $photoPath, string $caption, string $replyMarkup): bool
+{
+    if (BOT_TOKEN === '') {
+        return false;
+    }
+
+    $real = realpath($photoPath);
+    if ($real === false || !is_file($real)) {
+        return false;
+    }
+
+    $content = @file_get_contents($real);
+    if ($content === false) {
+        return false;
+    }
+
+    $tmp = tempnam(sys_get_temp_dir(), 'tg_preview_');
+    if ($tmp === false || @file_put_contents($tmp, $content, LOCK_EX) === false) {
+        if ($tmp !== false) {
+            @unlink($tmp);
+        }
+        return false;
+    }
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime = $finfo !== false ? (string) finfo_file($finfo, $tmp) : 'image/jpeg';
+    if ($finfo !== false) {
+        finfo_close($finfo);
+    }
+    if (!str_starts_with($mime, 'image/')) {
+        $mime = 'image/jpeg';
+    }
+
+    $ch = curl_init(TELEGRAM_API . '/sendPhoto');
+    if ($ch === false) {
+        @unlink($tmp);
+        return false;
+    }
+
+    $payload = [
+        'chat_id' => $chatId,
+        'caption' => $caption,
+        'photo' => new CURLFile($tmp, $mime, basename($real)),
+        'reply_markup' => $replyMarkup,
+    ];
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_TIMEOUT => 60,
+    ]);
+    $raw = curl_exec($ch);
+    $error = curl_error($ch);
+    curl_close($ch);
+    @unlink($tmp);
+
+    if ($error !== '') {
+        logError('sendPhoto cURL error: ' . $error);
+        return false;
+    }
+
+    $decoded = json_decode((string) $raw, true);
+    if (!is_array($decoded) || !($decoded['ok'] ?? false)) {
+        logError('sendPhoto Telegram error: ' . (is_array($decoded) ? (string) ($decoded['description'] ?? 'unknown') : (string) $raw));
+        return false;
+    }
+
+    apiRequest('deleteMessage', [
+        'chat_id' => $chatId,
+        'message_id' => $messageId,
+    ]);
+
+    return true;
+}
+
 function showCatalog(int $chatId, int $messageId, string $lang, ?string $parentId): void
 {
     $categories = readJson(CATEGORIES_FILE);
@@ -387,7 +462,7 @@ function showProductCard(int $chatId, int $messageId, string $lang, string $prod
     $price = formatPrice((float) ($product['price'] ?? 0), $settings);
     $stock = getProductStockFromBundles($product);
     $stockText = $stock > 0
-        ? ($lang === 'en' ? ('📦 Available: ' . $stock . ' bundles') : ('📦 Доступно: ' . $stock . ' архивов'))
+        ? ($lang === 'en' ? ('📦 Available: ' . $stock . ' pcs.') : ('📦 Доступно: ' . $stock . ' шт.'))
         : ($lang === 'en' ? '❌ Out of stock' : '❌ Нет в наличии');
 
     $text = $description !== ''
@@ -407,8 +482,14 @@ function showProductCard(int $chatId, int $messageId, string $lang, string $prod
         'callback_data' => $backTarget,
     ]];
 
+    $replyMarkup = json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE);
+    $previewPath = resolveSaleFilePath((string) ($product['preview'] ?? ''));
+    if ($previewPath !== null && sendProductPhotoCard($chatId, $messageId, $previewPath, $text, (string) $replyMarkup)) {
+        return;
+    }
+
     editMessageText($chatId, $messageId, $text, [
-        'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
+        'reply_markup' => $replyMarkup,
     ]);
 }
 
