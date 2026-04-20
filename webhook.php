@@ -216,7 +216,7 @@ function sendMainMenu(int $chatId, string $lang, bool $edit = false, string $nam
     ];
 
     if ($edit && $messageId > 0) {
-        editMessageText($chatId, $messageId, $text, ['reply_markup' => json_encode($markup, JSON_UNESCAPED_UNICODE)]);
+        safeEditMessage($chatId, $messageId, $text, ['reply_markup' => json_encode($markup, JSON_UNESCAPED_UNICODE)]);
         return;
     }
 
@@ -349,7 +349,7 @@ function showCatalog(int $chatId, int $messageId, string $lang, ?string $parentI
     $categories = readJson(CATEGORIES_FILE);
 
     if (!$categories) {
-        editMessageText($chatId, $messageId, t('no_categories', $lang), [
+        safeEditMessage($chatId, $messageId, t('no_categories', $lang), [
             'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
         ]);
         return;
@@ -371,7 +371,7 @@ function showCatalog(int $chatId, int $messageId, string $lang, ?string $parentI
     }
 
     if (!$buttons) {
-        editMessageText($chatId, $messageId, t('no_categories', $lang), [
+        safeEditMessage($chatId, $messageId, t('no_categories', $lang), [
             'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => $parentId === null ? 'main' : ('cat:' . $parentId)]]]], JSON_UNESCAPED_UNICODE),
         ]);
         return;
@@ -379,7 +379,7 @@ function showCatalog(int $chatId, int $messageId, string $lang, ?string $parentI
 
     $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => $parentId === null ? 'main' : ('cat:' . $parentId)]];
 
-    editMessageText($chatId, $messageId, trim($text), [
+    safeEditMessage($chatId, $messageId, trim($text), [
         'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
     ]);
 }
@@ -413,7 +413,7 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
 
         $backTarget = isRootCategory($category) ? 'menu:catalog' : ('cat:' . (string) $category['parent_id']);
         $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => $backTarget]];
-        editMessageText($chatId, $messageId, trim($text), [
+        safeEditMessage($chatId, $messageId, trim($text), [
             'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
         ]);
         return;
@@ -445,7 +445,7 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
 
     $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => isRootCategory($category) ? 'menu:catalog' : ('cat:' . (string) $category['parent_id'])]];
 
-    editMessageText($chatId, $messageId, trim($text), [
+    safeEditMessage($chatId, $messageId, trim($text), [
         'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
     ]);
 }
@@ -457,7 +457,7 @@ function showProductCard(int $chatId, int $messageId, string $lang, string $prod
 
     $product = $products[$productId] ?? null;
     if (!$product) {
-        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        safeEditMessage($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
 
@@ -492,7 +492,7 @@ function showProductCard(int $chatId, int $messageId, string $lang, string $prod
         return;
     }
 
-    editMessageText($chatId, $messageId, $text, [
+    safeEditMessage($chatId, $messageId, $text, [
         'reply_markup' => $replyMarkup,
     ]);
 }
@@ -526,13 +526,13 @@ function showQuantitySelector(int $chatId, int $messageId, string $lang, string 
 
     $product = $products[$productId] ?? null;
     if (!$product || !($product['active'] ?? false)) {
-        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        safeEditMessage($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
 
     $stock = getProductStockFromBundles($product);
     if ($stock === 0) {
-        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        safeEditMessage($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
 
@@ -543,7 +543,7 @@ function showQuantitySelector(int $chatId, int $messageId, string $lang, string 
     $availableQty = [1, 2, 3, 5, 10];
     $availableQty = array_values(array_filter($availableQty, static fn (int $optionQty): bool => $optionQty <= $stock));
     if (!$availableQty) {
-        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        safeEditMessage($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
 
@@ -566,7 +566,7 @@ function showQuantitySelector(int $chatId, int $messageId, string $lang, string 
     }
     $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => 'product:' . $productId]];
 
-    editMessageText($chatId, $messageId, $text, [
+    safeEditMessage($chatId, $messageId, $text, [
         'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
     ]);
 }
@@ -574,7 +574,7 @@ function showQuantitySelector(int $chatId, int $messageId, string $lang, string 
 function processBuy(int $chatId, int $messageId, string $userId, string $lang, string $productId, int $qty): void
 {
     if ($qty <= 0) {
-        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        safeEditMessage($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
 
@@ -589,7 +589,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
         if (is_resource($lock)) {
             fclose($lock);
         }
-        editMessageText($chatId, $messageId, t('purchase_busy', $lang));
+        safeEditMessage($chatId, $messageId, t('purchase_busy', $lang));
         return;
     }
 
@@ -602,7 +602,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     if (!$user || !$product || !($product['active'] ?? false)) {
         flock($lock, LOCK_UN);
         fclose($lock);
-        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        safeEditMessage($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
     $bundles = normalizeBundles($product);
@@ -610,7 +610,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     if ($stock === 0) {
         flock($lock, LOCK_UN);
         fclose($lock);
-        editMessageText($chatId, $messageId, 'Нет в наличии / Out of stock');
+        safeEditMessage($chatId, $messageId, 'Нет в наличии / Out of stock');
         return;
     }
 
@@ -619,7 +619,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     if ($qty > $stock) {
         flock($lock, LOCK_UN);
         fclose($lock);
-        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        safeEditMessage($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
     $selectedKeys = $qty === 1 ? [array_rand($bundles)] : (array) array_rand($bundles, $qty);
@@ -635,7 +635,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
         if ($bundleId === '' || $bundlePath === null) {
             flock($lock, LOCK_UN);
             fclose($lock);
-            editMessageText($chatId, $messageId, t('product_not_found', $lang));
+            safeEditMessage($chatId, $messageId, t('product_not_found', $lang));
             return;
         }
         $selectedBundleIds[] = $bundleId;
@@ -649,7 +649,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
         flock($lock, LOCK_UN);
         fclose($lock);
 
-        editMessageText($chatId, $messageId, t('insufficient_balance', $lang, ['need' => $need, 'total' => $totalText]), [
+        safeEditMessage($chatId, $messageId, t('insufficient_balance', $lang, ['need' => $need, 'total' => $totalText]), [
             'reply_markup' => json_encode([
                 'inline_keyboard' => [
                     [['text' => t('btn_topup', $lang), 'callback_data' => 'account:topup']],
@@ -706,7 +706,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     flock($lock, LOCK_UN);
     fclose($lock);
 
-    editMessageText($chatId, $messageId, t('purchase_success', $lang, [
+    safeEditMessage($chatId, $messageId, t('purchase_success', $lang, [
         'name' => $name,
         'qty' => (string) $qty,
         'total' => formatPrice($total, $settings),
@@ -747,7 +747,7 @@ function showAccount(int $chatId, int $messageId, string $userId, string $lang):
         ],
     ];
 
-    editMessageText($chatId, $messageId, $text, ['reply_markup' => json_encode($markup, JSON_UNESCAPED_UNICODE)]);
+    safeEditMessage($chatId, $messageId, $text, ['reply_markup' => json_encode($markup, JSON_UNESCAPED_UNICODE)]);
 }
 
 function showTopup(int $chatId, int $messageId, string $userId, string $lang): void
@@ -758,7 +758,7 @@ function showTopup(int $chatId, int $messageId, string $userId, string $lang): v
         $admin = 'admin';
     }
 
-    editMessageText($chatId, $messageId, t('topup_text', $lang, ['admin_username' => $admin, 'user_id' => $userId]), [
+    safeEditMessage($chatId, $messageId, t('topup_text', $lang, ['admin_username' => $admin, 'user_id' => $userId]), [
         'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => 'menu:account']]]], JSON_UNESCAPED_UNICODE),
     ]);
 }
@@ -774,7 +774,7 @@ function showHistory(int $chatId, int $messageId, string $userId, string $lang):
 
     $purchases = (array) ($user['purchases'] ?? []);
     if (!$purchases) {
-        editMessageText($chatId, $messageId, t('history_empty', $lang), [
+        safeEditMessage($chatId, $messageId, t('history_empty', $lang), [
             'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => 'menu:account']]]], JSON_UNESCAPED_UNICODE),
         ]);
         return;
@@ -793,7 +793,7 @@ function showHistory(int $chatId, int $messageId, string $userId, string $lang):
 
     $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => 'menu:account']];
 
-    editMessageText($chatId, $messageId, trim($text), [
+    safeEditMessage($chatId, $messageId, trim($text), [
         'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
     ]);
 }
