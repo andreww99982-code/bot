@@ -47,6 +47,83 @@ function sendTelegramTopupNotification(string $userId, string $text): void
     curl_close($ch);
 }
 
+function normalizeProductBundles(array $product): array
+{
+    $bundles = [];
+    foreach ((array) ($product['bundles'] ?? []) as $bundle) {
+        if (!is_array($bundle)) {
+            continue;
+        }
+        $id = trim((string) ($bundle['id'] ?? ''));
+        $file = trim((string) ($bundle['file'] ?? ''));
+        if ($id === '' || $file === '') {
+            continue;
+        }
+        $bundles[] = [
+            'id' => $id,
+            'file' => $file,
+            'created_at' => (string) ($bundle['created_at'] ?? date('Y-m-d H:i:s')),
+        ];
+    }
+    return array_values($bundles);
+}
+
+function recalculateProductStock(array &$product): void
+{
+    $product['bundles'] = normalizeProductBundles($product);
+    $product['stock'] = count($product['bundles']);
+    $product['active'] = $product['stock'] > 0;
+}
+
+function createBundleFromUpload(string $productId, array $files, ?string &$error = null): ?array
+{
+    $productDir = FILES_DIR . '/' . $productId;
+    if (!is_dir($productDir) && !@mkdir($productDir, 0755, true) && !is_dir($productDir)) {
+        $error = 'zip_create_failed';
+        return null;
+    }
+
+    $bundleId = uniqid('', true);
+    $bundleFileName = $bundleId . '.zip';
+    $archiveAbs = $productDir . '/' . $bundleFileName;
+
+    $zip = new ZipArchive();
+    if ($zip->open($archiveAbs, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+        $error = 'zip_create_failed';
+        return null;
+    }
+
+    $total = is_array($files['name'] ?? null) ? count($files['name']) : 0;
+    $added = 0;
+    for ($i = 0; $i < $total; $i++) {
+        if ((int) ($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            continue;
+        }
+        $tmp = (string) ($files['tmp_name'][$i] ?? '');
+        $name = basename((string) ($files['name'][$i] ?? ('file_' . $i)));
+        if ($tmp !== '' && is_uploaded_file($tmp)) {
+            $content = @file_get_contents($tmp);
+            if ($content !== false) {
+                $zip->addFromString(($i + 1) . '_' . $name, $content);
+                $added++;
+            }
+        }
+    }
+
+    $zip->close();
+    if ($added === 0) {
+        @unlink($archiveAbs);
+        $error = 'no_valid_files';
+        return null;
+    }
+
+    return [
+        'id' => $bundleId,
+        'file' => 'files/' . $productId . '/' . $bundleFileName,
+        'created_at' => date('Y-m-d H:i:s'),
+    ];
+}
+
 if (isset($_GET['api'])) {
     $api = (string) $_GET['api'];
 
@@ -69,6 +146,13 @@ if (isset($_GET['api'])) {
     if ($api === 'bootstrap') {
         $users = readJson(USERS_FILE);
         $products = readJson(PRODUCTS_FILE);
+        foreach ($products as &$product) {
+            if (!is_array($product)) {
+                continue;
+            }
+            recalculateProductStock($product);
+        }
+        unset($product);
         $settings = readJson(SETTINGS_FILE);
 
         $sales = 0;
@@ -176,61 +260,114 @@ if (isset($_GET['api'])) {
             jsonResponse(['ok' => false, 'error' => 'bad_category'], 400);
         }
 
-        if (!isset($_FILES['files'])) {
-            jsonResponse(['ok' => false, 'error' => 'no_files'], 400);
-        }
-
         $id = generateId();
-        $archiveName = 'archive_' . $id . '.zip';
-        $archiveAbs = FILES_DIR . '/' . $archiveName;
-
-        $zip = new ZipArchive();
-        if ($zip->open($archiveAbs, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
-            jsonResponse(['ok' => false, 'error' => 'zip_create_failed'], 500);
-        }
-
-        $files = $_FILES['files'];
-        $total = is_array($files['name']) ? count($files['name']) : 0;
-        $added = 0;
-        for ($i = 0; $i < $total; $i++) {
-            if ((int) ($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-                continue;
-            }
-            $tmp = (string) ($files['tmp_name'][$i] ?? '');
-            $name = basename((string) ($files['name'][$i] ?? ('file_' . $i)));
-            if ($tmp !== '' && is_uploaded_file($tmp)) {
-                $content = @file_get_contents($tmp);
-                if ($content !== false) {
-                    $zip->addFromString(($i + 1) . '_' . $name, $content);
-                    $added++;
-                }
-            }
-        }
-
-        $zip->close();
-        if ($added === 0) {
-            @unlink($archiveAbs);
-            jsonResponse(['ok' => false, 'error' => 'no_valid_files'], 400);
-        }
-
         $products = readJson(PRODUCTS_FILE);
-        $products[$id] = [
+        $product = [
             'id' => $id,
             'category_id' => $categoryId,
             'name' => [
                 'ru' => trim((string) ($_POST['name_ru'] ?? '')),
                 'en' => trim((string) ($_POST['name_en'] ?? '')),
             ],
+            'description' => [
+                'ru' => trim((string) ($_POST['description_ru'] ?? '')),
+                'en' => trim((string) ($_POST['description_en'] ?? '')),
+            ],
             'price' => (float) ($_POST['price'] ?? 0),
-            'file' => 'files/' . $archiveName,
-            'stock' => (int) ($_POST['stock'] ?? -1),
+            'bundles' => [],
+            'stock' => 0,
             'sold' => 0,
-            'active' => true,
+            'active' => false,
             'created_at' => date('Y-m-d H:i:s'),
         ];
 
+        if (isset($_FILES['files'])) {
+            $hasUploadedFiles = is_array($_FILES['files']['name'] ?? null) && count(array_filter((array) $_FILES['files']['name'], static fn ($v): bool => trim((string) $v) !== '')) > 0;
+            $error = null;
+            $bundle = createBundleFromUpload($id, $_FILES['files'], $error);
+            if ($bundle === null && $error !== null) {
+                $status = $error === 'no_valid_files' ? ($hasUploadedFiles ? 400 : 200) : 500;
+                if ($status !== 200) {
+                    jsonResponse(['ok' => false, 'error' => $error], $status);
+                }
+            }
+            if ($bundle !== null) {
+                $product['bundles'][] = $bundle;
+            }
+        }
+
+        recalculateProductStock($product);
+        $products[$id] = $product;
+
         writeJson(PRODUCTS_FILE, $products);
         jsonResponse(['ok' => true, 'message' => 'Товар добавлен']);
+    }
+
+    if ($api === 'add_bundle' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $productId = (string) ($_POST['product_id'] ?? '');
+        if ($productId === '' || !isset($_FILES['files'])) {
+            jsonResponse(['ok' => false, 'error' => 'no_files'], 400);
+        }
+
+        $products = readJson(PRODUCTS_FILE);
+        $product = $products[$productId] ?? null;
+        if (!is_array($product)) {
+            jsonResponse(['ok' => false, 'error' => 'product_not_found'], 404);
+        }
+
+        $error = null;
+        $bundle = createBundleFromUpload($productId, $_FILES['files'], $error);
+        if ($bundle === null) {
+            jsonResponse(['ok' => false, 'error' => $error ?? 'zip_create_failed'], $error === 'no_valid_files' ? 400 : 500);
+        }
+
+        $product['bundles'] = normalizeProductBundles($product);
+        $product['bundles'][] = $bundle;
+        recalculateProductStock($product);
+        $products[$productId] = $product;
+        writeJson(PRODUCTS_FILE, $products);
+
+        jsonResponse(['ok' => true, 'bundle_id' => $bundle['id'], 'stock' => $product['stock']]);
+    }
+
+    if ($api === 'delete_bundle' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $productId = (string) ($_POST['product_id'] ?? '');
+        $bundleId = (string) ($_POST['bundle_id'] ?? '');
+        if ($productId === '' || $bundleId === '') {
+            jsonResponse(['ok' => false, 'error' => 'bundle_not_found'], 400);
+        }
+
+        $products = readJson(PRODUCTS_FILE);
+        $product = $products[$productId] ?? null;
+        if (!is_array($product)) {
+            jsonResponse(['ok' => false, 'error' => 'product_not_found'], 404);
+        }
+
+        $bundles = normalizeProductBundles($product);
+        $nextBundles = [];
+        $removed = null;
+        foreach ($bundles as $bundle) {
+            if ((string) $bundle['id'] === $bundleId && $removed === null) {
+                $removed = $bundle;
+                continue;
+            }
+            $nextBundles[] = $bundle;
+        }
+        if ($removed === null) {
+            jsonResponse(['ok' => false, 'error' => 'bundle_not_found'], 404);
+        }
+
+        $path = resolveSaleFilePath((string) ($removed['file'] ?? ''));
+        if ($path !== null) {
+            @unlink($path);
+        }
+
+        $product['bundles'] = $nextBundles;
+        recalculateProductStock($product);
+        $products[$productId] = $product;
+        writeJson(PRODUCTS_FILE, $products);
+
+        jsonResponse(['ok' => true, 'stock' => $product['stock']]);
     }
 
     if ($api === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -238,9 +375,15 @@ if (isset($_GET['api'])) {
         $products = readJson(PRODUCTS_FILE);
         $product = $products[$id] ?? null;
         if ($product) {
-            $path = resolveSaleFilePath((string) ($product['file'] ?? ''));
-            if ($path !== null) {
-                @unlink($path);
+            foreach (normalizeProductBundles($product) as $bundle) {
+                $path = resolveSaleFilePath((string) ($bundle['file'] ?? ''));
+                if ($path !== null) {
+                    @unlink($path);
+                }
+            }
+            $legacyPath = resolveSaleFilePath((string) ($product['file'] ?? ''));
+            if ($legacyPath !== null) {
+                @unlink($legacyPath);
             }
             unset($products[$id]);
             writeJson(PRODUCTS_FILE, $products);
@@ -397,6 +540,8 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 no_files: 'Ошибка: выберите файлы',
                 no_valid_files: 'Ошибка: нет валидных файлов',
                 zip_create_failed: 'Ошибка: не удалось создать архив',
+                product_not_found: 'Ошибка: товар не найден',
+                bundle_not_found: 'Ошибка: архив не найден',
                 username_invalid_format: 'Ошибка: username администратора некорректный',
                 unknown_api: 'Ошибка: неизвестный API-метод',
             };
@@ -610,32 +755,50 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                         <div class="row">
                             <input name="name_ru" placeholder="Название RU" required>
                             <input name="name_en" placeholder="Название EN" required>
+                            <input name="description_ru" placeholder="Описание RU">
+                            <input name="description_en" placeholder="Описание EN">
                             <select name="category_id" required>
                                 <option value="">Категория</option>
                                 ${productCategoryOptions()}
                             </select>
                             <input name="price" type="number" step="0.01" min="0" placeholder="Цена" required>
-                            <label style="display:flex;align-items:center;gap:8px">
-                                <input id="stockUnlimited" type="checkbox" checked>
-                                Неограничено
-                            </label>
-                            <input id="stockInput" name="stock" type="number" min="0" step="1" placeholder="Количество" value="1" style="display:none" disabled>
                         </div>
-                        <div id="dropZone" class="drop" style="margin-top:10px">Перетащите файлы сюда или выберите вручную</div>
+                        <div id="dropZone" class="drop" style="margin-top:10px">Перетащите файлы сюда или выберите вручную (необязательно)</div>
                         <input id="fileInput" type="file" name="files[]" multiple style="margin-top:10px">
                         <div id="fileNames" class="muted"></div>
                         <div class="bar" style="margin:10px 0"><span id="uploadBar"></span></div>
                         <button>Добавить товар</button>
                     </form>
                     <table style="margin-top:16px"><tr><th>Название</th><th>Категория</th><th>Цена</th><th>Остаток</th><th>Продано</th><th></th></tr>
-                        ${pageProducts.map(p=>`<tr>
+                        ${pageProducts.map(p=>{
+                            const bundles = Array.isArray(p.bundles) ? p.bundles : [];
+                            return `<tr>
                             <td>${esc(p.name?.ru||p.name?.en||'—')}</td>
                             <td>${esc(categoryLabelById[p.category_id]||'—')}</td>
                             <td>${Number(p.price||0).toFixed(2)}</td>
-                            <td>${Number(p.stock) < 0 ? '∞' : esc(p.stock)}</td>
+                            <td>${bundles.length}</td>
                             <td>${esc(p.sold||0)}</td>
-                            <td><button data-del-prod="${esc(p.id)}">Удалить</button></td>
-                        </tr>`).join('') || '<tr><td colspan="6">Нет товаров</td></tr>'}
+                            <td>
+                                <button data-toggle-bundles="${esc(p.id)}">📦 Архивы (${bundles.length})</button>
+                                <button data-del-prod="${esc(p.id)}">Удалить</button>
+                            </td>
+                        </tr>
+                        <tr id="bundles-row-${esc(p.id)}" class="hidden">
+                            <td colspan="6">
+                                <div><b>Товар:</b> ${esc(p.name?.ru||p.name?.en||'—')}</div>
+                                ${(bundles.map(bundle=>`<div class="row" style="margin:6px 0;align-items:center">
+                                    <span>${esc(bundle.id)}.zip</span>
+                                    <span class="muted">создан ${esc(bundle.created_at||'')}</span>
+                                    <button data-del-bundle="${esc(p.id)}:${esc(bundle.id)}">Удалить</button>
+                                </div>`).join('')) || '<div class="muted">Архивов пока нет</div>'}
+                                <form class="row" data-add-bundle="${esc(p.id)}" style="margin-top:8px;align-items:center">
+                                    <input type="file" name="files[]" multiple required>
+                                    <button>+ Добавить архив</button>
+                                    <span class="muted">Итого архивов: ${bundles.length}</span>
+                                </form>
+                            </td>
+                        </tr>`;
+                        }).join('') || '<tr><td colspan="6">Нет товаров</td></tr>'}
                     </table>
                     <div class="row" style="margin-top:12px;align-items:center">
                         <button id="productsPrev" ${uiState.productsPage <= 1 ? 'disabled' : ''}>← Назад</button>
@@ -669,14 +832,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 const input = document.getElementById('fileInput');
                 const names = document.getElementById('fileNames');
                 const dz = document.getElementById('dropZone');
-                const stockUnlimited = document.getElementById('stockUnlimited');
-                const stockInput = document.getElementById('stockInput');
                 const refreshNames = ()=>{ names.textContent = [...input.files].map(f=>f.name).join(', '); };
-                const syncStockInput = ()=>{
-                    const unlimited = !!stockUnlimited.checked;
-                    stockInput.disabled = unlimited;
-                    stockInput.style.display = unlimited ? 'none' : '';
-                };
                 input.onchange = refreshNames;
                 dz.ondragover = (e)=>{e.preventDefault(); dz.style.borderColor='#5c89ff';};
                 dz.ondragleave = ()=>{dz.style.borderColor='';};
@@ -685,23 +841,10 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     input.files = e.dataTransfer.files;
                     refreshNames();
                 };
-                stockUnlimited.onchange = syncStockInput;
-                syncStockInput();
 
                 productForm.onsubmit = async (e)=>{
                     e.preventDefault();
-                    if(!input.files.length){ showToast('Ошибка: выберите файлы', 'error'); return; }
                     const fd = new FormData(productForm);
-                    if(stockUnlimited.checked){
-                        fd.set('stock', '-1');
-                    }else{
-                        const stock = Number(stockInput.value);
-                        if(!Number.isFinite(stock) || stock < 0){
-                            showToast('Ошибка: укажите корректное количество', 'error');
-                            return;
-                        }
-                        fd.set('stock', String(Math.floor(stock)));
-                    }
                     const xhr = new XMLHttpRequest();
                     xhr.upload.onprogress = (ev)=>{ if(ev.lengthComputable){ uploadBar.style.width = ((ev.loaded/ev.total)*100).toFixed(1) + '%'; } };
                     xhr.onreadystatechange = async ()=>{
@@ -718,6 +861,38 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     xhr.open('POST','?api=add_product');
                     xhr.send(fd);
                 };
+
+                document.querySelectorAll('[data-toggle-bundles]').forEach(btn=>btn.onclick=()=>{
+                    const row = document.getElementById(`bundles-row-${btn.dataset.toggleBundles}`);
+                    if(row){ row.classList.toggle('hidden'); }
+                });
+
+                document.querySelectorAll('[data-add-bundle]').forEach(form=>form.onsubmit=async(e)=>{
+                    e.preventDefault();
+                    const productId = form.dataset.addBundle;
+                    const file = form.querySelector('input[type="file"]');
+                    if(!file || !file.files.length){ showToast('Ошибка: выберите файлы', 'error'); return; }
+                    const fd = new FormData(form);
+                    fd.append('product_id', productId);
+                    const res = await fetch('?api=add_bundle',{method:'POST',body:fd});
+                    const j = await res.json();
+                    if(!j.ok){ showToast(apiError(j, 'не удалось добавить архив'), 'error'); return; }
+                    await load();
+                    showToast('Архив добавлен ✅');
+                });
+
+                document.querySelectorAll('[data-del-bundle]').forEach(btn=>btn.onclick=async()=>{
+                    const [productId, bundleId] = String(btn.dataset.delBundle || '').split(':');
+                    if(!productId || !bundleId){ return; }
+                    const fd = new FormData();
+                    fd.append('product_id', productId);
+                    fd.append('bundle_id', bundleId);
+                    const res = await fetch('?api=delete_bundle',{method:'POST',body:fd});
+                    const j = await res.json();
+                    if(!j.ok){ showToast(apiError(j, 'не удалось удалить архив'), 'error'); return; }
+                    await load();
+                    showToast('Архив удалён');
+                });
 
                 document.querySelectorAll('[data-del-prod]').forEach(btn=>btn.onclick=async()=>{
                     const fd = new FormData(); fd.append('id', btn.dataset.delProd);
