@@ -281,14 +281,17 @@ function sendProductPhotoCard(int $chatId, int $messageId, string $photoPath, st
         return false;
     }
 
-    $tmp = tempnam(sys_get_temp_dir(), 'tg_preview_');
-    if ($tmp === false || @file_put_contents($tmp, $content, LOCK_EX) === false) {
-        if ($tmp !== false) {
-            @unlink($tmp);
-        }
+    $tmpHandle = tmpfile();
+    if ($tmpHandle === false) {
         return false;
     }
-    @chmod($tmp, 0600);
+    $meta = stream_get_meta_data($tmpHandle);
+    $tmp = (string) ($meta['uri'] ?? '');
+    if ($tmp === '' || @fwrite($tmpHandle, $content) === false) {
+        fclose($tmpHandle);
+        return false;
+    }
+    fflush($tmpHandle);
 
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
     $mime = $finfo !== false ? (string) finfo_file($finfo, $tmp) : 'image/jpeg';
@@ -301,7 +304,7 @@ function sendProductPhotoCard(int $chatId, int $messageId, string $photoPath, st
 
     $ch = curl_init(TELEGRAM_API . '/sendPhoto');
     if ($ch === false) {
-        @unlink($tmp);
+        fclose($tmpHandle);
         return false;
     }
 
@@ -320,7 +323,7 @@ function sendProductPhotoCard(int $chatId, int $messageId, string $photoPath, st
     $raw = curl_exec($ch);
     $error = curl_error($ch);
     curl_close($ch);
-    @unlink($tmp);
+    fclose($tmpHandle);
 
     if ($error !== '') {
         logError('sendPhoto cURL error: ' . $error);
