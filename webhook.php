@@ -428,7 +428,7 @@ function showQuantitySelector(int $chatId, int $messageId, string $lang, string 
 
     $availableQty = [1, 2, 3, 5, 10];
     if ($stock !== -1) {
-        $availableQty = array_values(array_filter($availableQty, static fn (int $qty): bool => $qty <= $stock));
+        $availableQty = array_values(array_filter($availableQty, static fn (int $optionQty): bool => $optionQty <= $stock));
     }
     if (!$availableQty) {
         editMessageText($chatId, $messageId, t('product_not_found', $lang));
@@ -509,7 +509,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
         editMessageText($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
-    $total = $price * $qty;
+    $total = round($price * $qty, 2);
 
     if ($balance < $total) {
         $need = formatPrice($total - $balance, $settings);
@@ -536,13 +536,11 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
 
     $purchaseId = generateId();
     $name = (string) ($product['name'][$lang] ?? $product['name']['ru'] ?? 'Product');
-    $totalRounded = round($total, 2);
     $purchase = [
         'id' => $purchaseId,
         'product_id' => $product['id'],
         'product_name' => $name,
-        'qty' => $qty,
-        'price' => $totalRounded,
+        'price' => $total,
         'date' => date('Y-m-d H:i:s'),
         'file' => $product['file'],
     ];
@@ -560,7 +558,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     editMessageText($chatId, $messageId, t('purchase_success', $lang, [
         'name' => $name,
         'qty' => (string) $qty,
-        'total' => formatPrice($totalRounded, $settings),
+        'total' => formatPrice($total, $settings),
     ]), [
         'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_menu', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
     ]);
