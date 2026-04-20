@@ -113,6 +113,21 @@ function editMessageText($chatId, int $messageId, string $text, array $extra = [
     ], $extra));
 }
 
+function safeEditMessage($chatId, int $messageId, string $text, array $extra = []): ?array
+{
+    $edited = editMessageText($chatId, $messageId, $text, $extra);
+    if (is_array($edited) && ($edited['ok'] ?? false)) {
+        return $edited;
+    }
+
+    apiRequest('deleteMessage', [
+        'chat_id' => $chatId,
+        'message_id' => $messageId,
+    ]);
+
+    return sendMessage($chatId, $text, $extra);
+}
+
 function readJson(string $file): array
 {
     if (!file_exists($file)) {
