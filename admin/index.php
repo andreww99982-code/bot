@@ -21,6 +21,32 @@ function requireAuth(): void
     }
 }
 
+function sendTelegramTopupNotification(string $userId, string $text): void
+{
+    $token = (string) (getenv('BOT_TOKEN') ?: '');
+    if ($token === '' || $userId === '' || $text === '') {
+        return;
+    }
+
+    $ch = curl_init('https://api.telegram.org/bot' . $token . '/sendMessage');
+    if ($ch === false) {
+        return;
+    }
+
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode([
+            'chat_id' => $userId,
+            'text' => $text,
+        ], JSON_UNESCAPED_UNICODE),
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_TIMEOUT => 15,
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
 if (isset($_GET['api'])) {
     $api = (string) $_GET['api'];
 
@@ -222,7 +248,7 @@ if (isset($_GET['api'])) {
         jsonResponse(['ok' => true, 'message' => 'Товар удалён']);
     }
 
-    if ($api === 'topup' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (($api === 'topup' || $api === 'topup_balance') && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (string) ($_POST['id'] ?? '');
         $amount = (float) ($_POST['amount'] ?? 0);
         if ($amount <= 0) {
@@ -234,8 +260,17 @@ if (isset($_GET['api'])) {
             jsonResponse(['ok' => false, 'error' => 'user_not_found'], 404);
         }
 
+        $settings = readJson(SETTINGS_FILE);
         $users[$id]['balance'] = round((float) ($users[$id]['balance'] ?? 0) + $amount, 2);
         writeJson(USERS_FILE, $users);
+        $lang = ((string) ($users[$id]['lang'] ?? 'ru')) === 'en' ? 'en' : 'ru';
+        $symbol = (string) ($settings['currency_symbol'] ?? '₽');
+        $amountText = number_format($amount, 2, '.', '');
+        $balanceText = number_format((float) $users[$id]['balance'], 2, '.', '');
+        $message = $lang === 'en'
+            ? "✅ Your balance has been topped up by {$amountText} {$symbol}\n💰 Current balance: {$balanceText} {$symbol}"
+            : "✅ Ваш баланс пополнен на {$amountText} {$symbol}\n💰 Текущий баланс: {$balanceText} {$symbol}";
+        sendTelegramTopupNotification($id, $message);
         jsonResponse(['ok' => true, 'message' => 'Баланс пополнен']);
     }
 
@@ -253,6 +288,12 @@ if (isset($_GET['api'])) {
             jsonResponse(['ok' => false, 'error' => 'username_invalid_format', 'message' => 'Username must have at least 5 characters after sanitization (letters, numbers, underscore).'], 400);
         }
         $settings['admin_username'] = $username;
+        $currency = strtoupper(trim((string) ($_POST['currency'] ?? ($settings['currency'] ?? 'RUB'))));
+        $currency = preg_replace('/[^A-Z0-9]/', '', $currency) ?: 'RUB';
+        $settings['currency'] = substr($currency, 0, 5);
+        $currencySymbol = trim((string) ($_POST['currency_symbol'] ?? ($settings['currency_symbol'] ?? '₽')));
+        $settings['currency_symbol'] = function_exists('mb_substr') ? mb_substr($currencySymbol, 0, 5) : substr($currencySymbol, 0, 5);
+        $settings['support_username'] = preg_replace('/[^a-zA-Z0-9_]/', '', ltrim((string) ($_POST['support_username'] ?? ($settings['support_username'] ?? '')), '@'));
         $settings['help_text'] = [
             'ru' => trim((string) ($_POST['help_text_ru'] ?? '')),
             'en' => trim((string) ($_POST['help_text_en'] ?? '')),
@@ -340,7 +381,9 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
         <div id="settings" class="card hidden"></div>
 
         <script>
+            const PAGE_SIZE = 10;
             const state = {categories:[],products:[],users:[],settings:{},stats:{}};
+            const uiState = {usersQuery:'',usersPage:1,productsQuery:'',productsPage:1};
             const errorText = {
                 unauthorized: 'Ошибка: требуется авторизация',
                 wrong_password: 'Ошибка: неверный пароль',
@@ -543,9 +586,26 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 flattenCategories().forEach(({category, depth}) => {
                     categoryLabelById[category.id] = `${'— '.repeat(depth)}${categoryName(category)}`;
                 });
+                const query = uiState.productsQuery.trim().toLowerCase();
+                const filteredProducts = state.products.filter((p) => {
+                    if(query === ''){ return true; }
+                    const nameRu = String(p?.name?.ru || '').toLowerCase();
+                    const nameEn = String(p?.name?.en || '').toLowerCase();
+                    const category = String(categoryLabelById[p.category_id] || '').toLowerCase();
+                    return nameRu.includes(query) || nameEn.includes(query) || category.includes(query);
+                });
+                const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PAGE_SIZE));
+                if(uiState.productsPage > totalPages){ uiState.productsPage = totalPages; }
+                const start = (uiState.productsPage - 1) * PAGE_SIZE;
+                const pageProducts = filteredProducts.slice(start, start + PAGE_SIZE);
 
                 products.innerHTML = `
                     <h3>🗂 Товары</h3>
+                    <div class="row" style="margin-bottom:10px">
+                        <input id="productsSearch" placeholder="Поиск: название (RU/EN) или категория" value="${esc(uiState.productsQuery)}" oninput="window.__onProductsSearchInput(this.value)" style="min-width:320px;flex:1 1 320px">
+                    </div>
+                    <div class="muted" style="margin-bottom:10px">Страница ${uiState.productsPage} из ${totalPages}</div>
+                    <div class="muted" style="margin-bottom:10px">Найдено: ${filteredProducts.length} товаров</div>
                     <form id="productForm">
                         <div class="row">
                             <input name="name_ru" placeholder="Название RU" required>
@@ -568,7 +628,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                         <button>Добавить товар</button>
                     </form>
                     <table style="margin-top:16px"><tr><th>Название</th><th>Категория</th><th>Цена</th><th>Остаток</th><th>Продано</th><th></th></tr>
-                        ${state.products.map(p=>`<tr>
+                        ${pageProducts.map(p=>`<tr>
                             <td>${esc(p.name?.ru||p.name?.en||'—')}</td>
                             <td>${esc(categoryLabelById[p.category_id]||'—')}</td>
                             <td>${Number(p.price||0).toFixed(2)}</td>
@@ -577,8 +637,35 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             <td><button data-del-prod="${esc(p.id)}">Удалить</button></td>
                         </tr>`).join('') || '<tr><td colspan="6">Нет товаров</td></tr>'}
                     </table>
+                    <div class="row" style="margin-top:12px;align-items:center">
+                        <button id="productsPrev" ${uiState.productsPage <= 1 ? 'disabled' : ''}>← Назад</button>
+                        <button id="productsNext" ${uiState.productsPage >= totalPages ? 'disabled' : ''}>Вперёд →</button>
+                    </div>
                 `;
 
+                window.__onProductsSearchInput = (value)=>{
+                    uiState.productsQuery = value;
+                    uiState.productsPage = 1;
+                    renderProducts();
+                };
+                const productsPrev = document.getElementById('productsPrev');
+                const productsNext = document.getElementById('productsNext');
+                if(productsPrev){
+                    productsPrev.onclick = ()=>{
+                        if(uiState.productsPage > 1){
+                            uiState.productsPage--;
+                            renderProducts();
+                        }
+                    };
+                }
+                if(productsNext){
+                    productsNext.onclick = ()=>{
+                        if(uiState.productsPage < totalPages){
+                            uiState.productsPage++;
+                            renderProducts();
+                        }
+                    };
+                }
                 const input = document.getElementById('fileInput');
                 const names = document.getElementById('fileNames');
                 const dz = document.getElementById('dropZone');
@@ -643,10 +730,28 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
             }
 
             function renderUsers(){
+                const query = uiState.usersQuery.trim().toLowerCase();
+                const filteredUsers = state.users.filter((u) => {
+                    if(query === ''){ return true; }
+                    const id = String(u?.id ?? '').toLowerCase();
+                    const firstName = String(u?.first_name ?? '').toLowerCase();
+                    const username = String(u?.username ?? '').toLowerCase();
+                    return id.includes(query) || firstName.includes(query) || username.includes(query);
+                });
+                const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
+                if(uiState.usersPage > totalPages){ uiState.usersPage = totalPages; }
+                const start = (uiState.usersPage - 1) * PAGE_SIZE;
+                const pageUsers = filteredUsers.slice(start, start + PAGE_SIZE);
+
                 users.innerHTML = `
                     <h3>👥 Пользователи</h3>
+                    <div class="row" style="margin-bottom:10px">
+                        <input id="usersSearch" placeholder="Поиск: Telegram ID, имя, username" value="${esc(uiState.usersQuery)}" oninput="window.__onUsersSearchInput(this.value)" style="min-width:320px;flex:1 1 320px">
+                    </div>
+                    <div class="muted" style="margin-bottom:10px">Страница ${uiState.usersPage} из ${totalPages}</div>
+                    <div class="muted" style="margin-bottom:10px">Найдено: ${filteredUsers.length} пользователей</div>
                     <table><tr><th>ID</th><th>Имя</th><th>Язык</th><th>Баланс</th><th>Покупок</th><th>Действия</th></tr>
-                        ${state.users.map(u=>`<tr>
+                        ${pageUsers.map(u=>`<tr>
                             <td>${esc(u.id)}</td>
                             <td>${esc(u.first_name||'')}</td>
                             <td>${esc(u.lang||'—')}</td>
@@ -658,9 +763,36 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             </td>
                         </tr>`).join('') || '<tr><td colspan="6">Нет пользователей</td></tr>'}
                     </table>
+                    <div class="row" style="margin-top:12px;align-items:center">
+                        <button id="usersPrev" ${uiState.usersPage <= 1 ? 'disabled' : ''}>← Назад</button>
+                        <button id="usersNext" ${uiState.usersPage >= totalPages ? 'disabled' : ''}>Вперёд →</button>
+                    </div>
                     <div id="historyBox" class="muted" style="margin-top:12px"></div>
                 `;
 
+                window.__onUsersSearchInput = (value)=>{
+                    uiState.usersQuery = value;
+                    uiState.usersPage = 1;
+                    renderUsers();
+                };
+                const usersPrev = document.getElementById('usersPrev');
+                const usersNext = document.getElementById('usersNext');
+                if(usersPrev){
+                    usersPrev.onclick = ()=>{
+                        if(uiState.usersPage > 1){
+                            uiState.usersPage--;
+                            renderUsers();
+                        }
+                    };
+                }
+                if(usersNext){
+                    usersNext.onclick = ()=>{
+                        if(uiState.usersPage < totalPages){
+                            uiState.usersPage++;
+                            renderUsers();
+                        }
+                    };
+                }
                 document.querySelectorAll('[data-topup]').forEach(btn=>btn.onclick=async()=>{
                     const amount = prompt('Сумма пополнения:');
                     if(!amount) return;
@@ -687,12 +819,23 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     <h3>⚙️ Настройки</h3>
                     <form id="settingsForm" class="row">
                         <input name="admin_username" value="${esc(state.settings.admin_username||'admin')}" placeholder="username администратора">
+                        <input id="currencyInput" name="currency" maxlength="5" value="${esc(state.settings.currency||'RUB')}" placeholder="Код валюты (USD/RUB/EUR)">
+                        <input name="currency_symbol" maxlength="5" value="${esc(state.settings.currency_symbol||'₽')}" placeholder="Символ валюты ($, ₽, €)">
+                        <input id="supportInput" name="support_username" value="${esc(state.settings.support_username||'')}" placeholder="username саппорта (без @)">
                         <textarea name="help_text_ru" placeholder="Текст помощи (RU)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.ru||'')}</textarea>
                         <textarea name="help_text_en" placeholder="Help text (EN)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.en||'')}</textarea>
                         <button>Сохранить</button>
                     </form>
-                    <div class="muted">Этот username показывается пользователям в инструкции пополнения.</div>
+                    <div class="muted">admin_username показывается пользователям в инструкции пополнения. support_username используется в разделе помощи.</div>
                 `;
+                const currencyInput = document.getElementById('currencyInput');
+                if(currencyInput){
+                    currencyInput.oninput = ()=>{ currencyInput.value = currencyInput.value.toUpperCase(); };
+                }
+                const supportInput = document.getElementById('supportInput');
+                if(supportInput){
+                    supportInput.oninput = ()=>{ supportInput.value = supportInput.value.replace(/^@+/, '').replace(/[^a-zA-Z0-9_]/g, ''); };
+                }
 
                 settingsForm.onsubmit = async (e)=>{
                     e.preventDefault();
@@ -712,6 +855,9 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 state.products = j.products||[];
                 state.users = j.users_list||[];
                 state.settings = j.settings||{};
+                state.settings.currency = state.settings.currency || 'RUB';
+                state.settings.currency_symbol = state.settings.currency_symbol || '₽';
+                state.settings.support_username = state.settings.support_username || '';
                 state.settings.help_text = state.settings.help_text || {ru:'',en:''};
                 state.stats = j.stats||{};
                 renderStats(); renderCategories(); renderProducts(); renderUsers(); renderSettings();

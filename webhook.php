@@ -168,9 +168,18 @@ function handleCallback(array $callback): void
         if ($help === '') {
             $help = t('help_text', $lang);
         }
+        $supportUsername = ltrim(trim((string) ($settings['support_username'] ?? '')), '@');
+        $buttons = [];
+        if ($supportUsername !== '') {
+            $buttons[] = [[
+                'text' => $lang === 'en' ? '💬 Contact support' : '💬 Написать саппорту',
+                'url' => 'https://t.me/' . $supportUsername,
+            ]];
+        }
+        $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => 'main']];
 
         editMessageText($chatId, $messageId, $help, [
-            'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
+            'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
         ]);
         return;
     }
@@ -414,7 +423,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     fclose($lock);
 
     editMessageText($chatId, $messageId, t('purchase_ok', $lang), [
-        'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
+        'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_menu', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
     ]);
 
     $path = resolveSaleFilePath((string) $product['file']);
@@ -424,6 +433,9 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     }
 
     sendDocument($chatId, $path, $name);
+    sendMessage($chatId, t('menu', $lang), [
+        'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_menu', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
+    ]);
 }
 
 function showAccount(int $chatId, int $messageId, string $userId, string $lang): void

@@ -34,6 +34,7 @@ $defaults = [
         'admin_username' => 'admin',
         'currency' => 'RUB',
         'currency_symbol' => '₽',
+        'support_username' => '',
         'help_text' => [
             'ru' => '',
             'en' => '',
