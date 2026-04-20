@@ -288,6 +288,7 @@ function sendProductPhotoCard(int $chatId, int $messageId, string $photoPath, st
         }
         return false;
     }
+    @chmod($tmp, 0600);
 
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
     $mime = $finfo !== false ? (string) finfo_file($finfo, $tmp) : 'image/jpeg';
