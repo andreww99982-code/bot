@@ -152,8 +152,13 @@ function handleCallback(array $callback): void
         return;
     }
 
+    if (str_starts_with($data, 'product:')) {
+        showProductCard($chatId, $messageId, $lang, substr($data, 8));
+        return;
+    }
+
     if (str_starts_with($data, 'buy:')) {
-        processBuy($chatId, $messageId, $userId, $lang, substr($data, 4));
+        handleBuyCallback($chatId, $messageId, $userId, $lang, substr($data, 4));
         return;
     }
 
@@ -287,9 +292,14 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
     }
 
     $categoryName = (string) ($category['name'][$lang] ?? $category['name']['ru'] ?? 'Category');
+    $categoryDesc = trim((string) ($category['description'][$lang] ?? $category['description']['ru'] ?? ''));
+    $text = '📂 ' . $categoryName;
+    if ($categoryDesc !== '') {
+        $text .= "\n\n" . $categoryDesc;
+    }
+
     $children = findChildCategories($categories, $categoryId);
     if ($children) {
-        $text = t('catalog_title', $lang) . "\n\n";
         $buttons = [];
         foreach ($children as $child) {
             $name = (string) ($child['name'][$lang] ?? $child['name']['ru'] ?? 'Category');
@@ -304,8 +314,6 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
         return;
     }
 
-    $text = t('products_title', $lang, ['name' => $categoryName]) . "\n\n";
-
     $buttons = [];
     $found = 0;
     foreach ($products as $product) {
@@ -319,18 +327,15 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
 
         $name = (string) ($product['name'][$lang] ?? $product['name']['ru'] ?? 'Product');
         $price = formatPrice((float) ($product['price'] ?? 0), $settings);
-        $qty = $stock < 0 ? '∞' : (string) $stock;
-        $text .= '• ' . $name . ' — ' . $price . ' | x' . $qty . "\n";
-
         $buttons[] = [[
-            'text' => t('buy', $lang) . ': ' . $name,
-            'callback_data' => 'buy:' . $product['id'],
+            'text' => $name . ' — ' . $price,
+            'callback_data' => 'product:' . $product['id'],
         ]];
         $found++;
     }
 
     if ($found === 0) {
-        $text .= t('category_empty', $lang);
+        $text .= "\n\n" . t('category_empty', $lang);
     }
 
     $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => isRootCategory($category) ? 'menu:catalog' : ('cat:' . (string) $category['parent_id'])]];
@@ -340,8 +345,127 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
     ]);
 }
 
-function processBuy(int $chatId, int $messageId, string $userId, string $lang, string $productId): void
+function showProductCard(int $chatId, int $messageId, string $lang, string $productId): void
 {
+    $products = readJson(PRODUCTS_FILE);
+    $settings = readJson(SETTINGS_FILE);
+
+    $product = $products[$productId] ?? null;
+    if (!$product || !($product['active'] ?? false) || (int) ($product['stock'] ?? 0) === 0) {
+        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        return;
+    }
+
+    $name = (string) ($product['name'][$lang] ?? $product['name']['ru'] ?? 'Product');
+    $description = trim((string) ($product['description'][$lang] ?? $product['description']['ru'] ?? ''));
+    $price = formatPrice((float) ($product['price'] ?? 0), $settings);
+    $stock = (int) ($product['stock'] ?? 0);
+    $stockText = $stock < 0 ? '∞' : (string) $stock;
+
+    $text = $description !== ''
+        ? t('product_card', $lang, ['name' => $name, 'description' => $description, 'price' => $price, 'stock' => $stockText])
+        : t('product_card_nodesc', $lang, ['name' => $name, 'price' => $price, 'stock' => $stockText]);
+
+    $backTarget = isset($product['category_id']) && $product['category_id'] !== '' ? 'cat:' . $product['category_id'] : 'menu:catalog';
+    $buttons = [
+        [[
+            'text' => t('btn_buy', $lang, ['price' => $price]),
+            'callback_data' => 'buy:' . $product['id'],
+        ]],
+        [[
+            'text' => t('btn_back', $lang),
+            'callback_data' => $backTarget,
+        ]],
+    ];
+
+    editMessageText($chatId, $messageId, $text, [
+        'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
+    ]);
+}
+
+function handleBuyCallback(int $chatId, int $messageId, string $userId, string $lang, string $payload): void
+{
+    $parts = explode(':', $payload);
+    if (count($parts) === 1) {
+        showQuantitySelector($chatId, $messageId, $lang, $parts[0]);
+        return;
+    }
+
+    if (count($parts) !== 2) {
+        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        return;
+    }
+
+    $qty = (int) $parts[1];
+    if ($qty <= 0) {
+        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        return;
+    }
+
+    processBuy($chatId, $messageId, $userId, $lang, $parts[0], $qty);
+}
+
+function showQuantitySelector(int $chatId, int $messageId, string $lang, string $productId): void
+{
+    $products = readJson(PRODUCTS_FILE);
+    $settings = readJson(SETTINGS_FILE);
+
+    $product = $products[$productId] ?? null;
+    if (!$product || !($product['active'] ?? false)) {
+        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        return;
+    }
+
+    $stock = (int) ($product['stock'] ?? 0);
+    if ($stock === 0) {
+        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        return;
+    }
+
+    $name = (string) ($product['name'][$lang] ?? $product['name']['ru'] ?? 'Product');
+    $price = formatPrice((float) ($product['price'] ?? 0), $settings);
+    $text = t('choose_qty', $lang, ['name' => $name, 'price' => $price]);
+
+    $availableQty = [1, 2, 3, 5, 10];
+    if ($stock !== -1) {
+        $availableQty = array_values(array_filter($availableQty, static fn (int $optionQty): bool => $optionQty <= $stock));
+    }
+    if (!$availableQty) {
+        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        return;
+    }
+
+    $buttons = [];
+    $firstRow = [];
+    $secondRow = [];
+    foreach ($availableQty as $index => $qty) {
+        $button = ['text' => (string) $qty, 'callback_data' => 'buy:' . $productId . ':' . $qty];
+        if ($index < 3) {
+            $firstRow[] = $button;
+        } else {
+            $secondRow[] = $button;
+        }
+    }
+    if ($firstRow) {
+        $buttons[] = $firstRow;
+    }
+    if ($secondRow) {
+        $buttons[] = $secondRow;
+    }
+    $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => 'product:' . $productId]];
+
+    editMessageText($chatId, $messageId, $text, [
+        'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
+    ]);
+}
+
+function processBuy(int $chatId, int $messageId, string $userId, string $lang, string $productId, int $qty): void
+{
+    if ($qty <= 0) {
+        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        return;
+    }
+
     $settings = readJson(SETTINGS_FILE);
     if (!is_dir(DATA_DIR)) {
         @mkdir(DATA_DIR, 0755, true);
@@ -378,27 +502,36 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
 
     $price = (float) ($product['price'] ?? 0.0);
     $balance = (float) ($user['balance'] ?? 0.0);
+    $stock = (int) ($product['stock'] ?? -1);
+    if ($stock !== -1 && $qty > $stock) {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        return;
+    }
+    $total = round($price * $qty, 2);
 
-    if ($balance < $price) {
-        $need = formatPrice($price - $balance, $settings);
+    if ($balance < $total) {
+        $need = formatPrice($total - $balance, $settings);
+        $totalText = formatPrice($total, $settings);
         flock($lock, LOCK_UN);
         fclose($lock);
 
-        editMessageText($chatId, $messageId, t('insufficient', $lang, ['need' => $need]), [
+        editMessageText($chatId, $messageId, t('insufficient_balance', $lang, ['need' => $need, 'total' => $totalText]), [
             'reply_markup' => json_encode([
                 'inline_keyboard' => [
                     [['text' => t('btn_topup', $lang), 'callback_data' => 'account:topup']],
-                    [['text' => t('btn_back', $lang), 'callback_data' => 'menu:catalog']],
+                    [['text' => t('btn_back', $lang), 'callback_data' => 'product:' . $productId]],
                 ],
             ], JSON_UNESCAPED_UNICODE),
         ]);
         return;
     }
 
-    $user['balance'] = round($balance - $price, 2);
-    $product['sold'] = (int) ($product['sold'] ?? 0) + 1;
-    if ((int) ($product['stock'] ?? -1) > 0) {
-        $product['stock'] = (int) $product['stock'] - 1;
+    $user['balance'] = round($balance - $total, 2);
+    $product['sold'] = (int) ($product['sold'] ?? 0) + $qty;
+    if ($stock !== -1) {
+        $product['stock'] = $stock - $qty;
     }
 
     $purchaseId = generateId();
@@ -407,7 +540,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
         'id' => $purchaseId,
         'product_id' => $product['id'],
         'product_name' => $name,
-        'price' => $price,
+        'price' => $total,
         'date' => date('Y-m-d H:i:s'),
         'file' => $product['file'],
     ];
@@ -422,7 +555,11 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     flock($lock, LOCK_UN);
     fclose($lock);
 
-    editMessageText($chatId, $messageId, t('purchase_ok', $lang), [
+    editMessageText($chatId, $messageId, t('purchase_success', $lang, [
+        'name' => $name,
+        'qty' => (string) $qty,
+        'total' => formatPrice($total, $settings),
+    ]), [
         'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_menu', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
     ]);
 
@@ -433,9 +570,6 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     }
 
     sendDocument($chatId, $path, $name);
-    sendMessage($chatId, t('menu', $lang), [
-        'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_menu', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
-    ]);
 }
 
 function showAccount(int $chatId, int $messageId, string $userId, string $lang): void
