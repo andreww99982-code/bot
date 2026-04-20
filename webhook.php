@@ -239,6 +239,32 @@ function findChildCategories(array $categories, string $parentId): array
     return $children;
 }
 
+function normalizeBundles(array $product): array
+{
+    $bundles = [];
+    foreach ((array) ($product['bundles'] ?? []) as $bundle) {
+        if (!is_array($bundle)) {
+            continue;
+        }
+        $id = trim((string) ($bundle['id'] ?? ''));
+        $file = trim((string) ($bundle['file'] ?? ''));
+        if ($id === '' || $file === '') {
+            continue;
+        }
+        $bundles[] = [
+            'id' => $id,
+            'file' => $file,
+            'created_at' => (string) ($bundle['created_at'] ?? ''),
+        ];
+    }
+    return array_values($bundles);
+}
+
+function getProductStockFromBundles(array $product): int
+{
+    return count(normalizeBundles($product));
+}
+
 function showCatalog(int $chatId, int $messageId, string $lang, ?string $parentId): void
 {
     $categories = readJson(CATEGORIES_FILE);
@@ -320,7 +346,7 @@ function showCategory(int $chatId, int $messageId, string $lang, string $categor
         if (($product['category_id'] ?? '') !== $categoryId || !($product['active'] ?? false)) {
             continue;
         }
-        $stock = (int) ($product['stock'] ?? 0);
+        $stock = getProductStockFromBundles($product);
         if ($stock === 0) {
             continue;
         }
@@ -351,7 +377,7 @@ function showProductCard(int $chatId, int $messageId, string $lang, string $prod
     $settings = readJson(SETTINGS_FILE);
 
     $product = $products[$productId] ?? null;
-    if (!$product || !($product['active'] ?? false) || (int) ($product['stock'] ?? 0) === 0) {
+    if (!$product) {
         editMessageText($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
@@ -359,24 +385,27 @@ function showProductCard(int $chatId, int $messageId, string $lang, string $prod
     $name = (string) ($product['name'][$lang] ?? $product['name']['ru'] ?? 'Product');
     $description = trim((string) ($product['description'][$lang] ?? $product['description']['ru'] ?? ''));
     $price = formatPrice((float) ($product['price'] ?? 0), $settings);
-    $stock = (int) ($product['stock'] ?? 0);
-    $stockText = $stock < 0 ? '∞' : (string) $stock;
+    $stock = getProductStockFromBundles($product);
+    $stockText = $stock > 0
+        ? ($lang === 'en' ? ('📦 Available: ' . $stock . ' bundles') : ('📦 Доступно: ' . $stock . ' архивов'))
+        : ($lang === 'en' ? '❌ Out of stock' : '❌ Нет в наличии');
 
     $text = $description !== ''
         ? t('product_card', $lang, ['name' => $name, 'description' => $description, 'price' => $price, 'stock' => $stockText])
         : t('product_card_nodesc', $lang, ['name' => $name, 'price' => $price, 'stock' => $stockText]);
 
     $backTarget = isset($product['category_id']) && $product['category_id'] !== '' ? 'cat:' . $product['category_id'] : 'menu:catalog';
-    $buttons = [
-        [[
+    $buttons = [];
+    if ($stock > 0 && ($product['active'] ?? false)) {
+        $buttons[] = [[
             'text' => t('btn_buy', $lang, ['price' => $price]),
             'callback_data' => 'buy:' . $product['id'],
-        ]],
-        [[
-            'text' => t('btn_back', $lang),
-            'callback_data' => $backTarget,
-        ]],
-    ];
+        ]];
+    }
+    $buttons[] = [[
+        'text' => t('btn_back', $lang),
+        'callback_data' => $backTarget,
+    ]];
 
     editMessageText($chatId, $messageId, $text, [
         'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
@@ -416,7 +445,7 @@ function showQuantitySelector(int $chatId, int $messageId, string $lang, string 
         return;
     }
 
-    $stock = (int) ($product['stock'] ?? 0);
+    $stock = getProductStockFromBundles($product);
     if ($stock === 0) {
         editMessageText($chatId, $messageId, t('product_not_found', $lang));
         return;
@@ -427,9 +456,7 @@ function showQuantitySelector(int $chatId, int $messageId, string $lang, string 
     $text = t('choose_qty', $lang, ['name' => $name, 'price' => $price]);
 
     $availableQty = [1, 2, 3, 5, 10];
-    if ($stock !== -1) {
-        $availableQty = array_values(array_filter($availableQty, static fn (int $optionQty): bool => $optionQty <= $stock));
-    }
+    $availableQty = array_values(array_filter($availableQty, static fn (int $optionQty): bool => $optionQty <= $stock));
     if (!$availableQty) {
         editMessageText($chatId, $messageId, t('product_not_found', $lang));
         return;
@@ -493,7 +520,9 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
         editMessageText($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
-    if ((int) ($product['stock'] ?? 0) === 0) {
+    $bundles = normalizeBundles($product);
+    $stock = count($bundles);
+    if ($stock === 0) {
         flock($lock, LOCK_UN);
         fclose($lock);
         editMessageText($chatId, $messageId, 'Нет в наличии / Out of stock');
@@ -502,12 +531,30 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
 
     $price = (float) ($product['price'] ?? 0.0);
     $balance = (float) ($user['balance'] ?? 0.0);
-    $stock = (int) ($product['stock'] ?? -1);
-    if ($stock !== -1 && $qty > $stock) {
+    if ($qty > $stock) {
         flock($lock, LOCK_UN);
         fclose($lock);
         editMessageText($chatId, $messageId, t('product_not_found', $lang));
         return;
+    }
+    $selectedKeys = $qty === 1 ? [array_rand($bundles)] : (array) array_rand($bundles, $qty);
+    $selectedBundles = [];
+    foreach ($selectedKeys as $key) {
+        $selectedBundles[] = $bundles[(int) $key];
+    }
+    $selectedBundleIds = [];
+    $selectedFiles = [];
+    foreach ($selectedBundles as $bundle) {
+        $bundleId = (string) ($bundle['id'] ?? '');
+        $bundlePath = resolveSaleFilePath((string) ($bundle['file'] ?? ''));
+        if ($bundleId === '' || $bundlePath === null) {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+            editMessageText($chatId, $messageId, t('product_not_found', $lang));
+            return;
+        }
+        $selectedBundleIds[] = $bundleId;
+        $selectedFiles[] = ['path' => $bundlePath, 'caption' => (string) ($product['name'][$lang] ?? $product['name']['ru'] ?? 'Product')];
     }
     $total = round($price * $qty, 2);
 
@@ -530,27 +577,46 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
 
     $user['balance'] = round($balance - $total, 2);
     $product['sold'] = (int) ($product['sold'] ?? 0) + $qty;
-    if ($stock !== -1) {
-        $product['stock'] = $stock - $qty;
+    $nextBundles = [];
+    foreach ($bundles as $bundle) {
+        if (in_array((string) ($bundle['id'] ?? ''), $selectedBundleIds, true)) {
+            continue;
+        }
+        $nextBundles[] = $bundle;
+    }
+    $product['bundles'] = array_values($nextBundles);
+    $product['stock'] = count($product['bundles']);
+    if ($product['stock'] === 0) {
+        $product['active'] = false;
     }
 
     $purchaseId = generateId();
     $name = (string) ($product['name'][$lang] ?? $product['name']['ru'] ?? 'Product');
+    $bundleFiles = array_values(array_map(static fn (array $bundle): string => (string) ($bundle['file'] ?? ''), $selectedBundles));
     $purchase = [
         'id' => $purchaseId,
         'product_id' => $product['id'],
         'product_name' => $name,
         'price' => $total,
         'date' => date('Y-m-d H:i:s'),
-        'file' => $product['file'],
+        'file' => (string) ($bundleFiles[0] ?? ''),
+        'files' => $bundleFiles,
+        'qty' => $qty,
+        'bundle_ids' => $selectedBundleIds,
     ];
 
     $user['purchases'][] = $purchase;
     $users[$userId] = $user;
     $products[$productId] = $product;
 
-    writeJson(USERS_FILE, $users);
+    $orders = readJson(DATA_DIR . '/orders.json');
+    $orders[$purchaseId] = array_merge($purchase, [
+        'user_id' => $userId,
+    ]);
+
     writeJson(PRODUCTS_FILE, $products);
+    writeJson(USERS_FILE, $users);
+    writeJson(DATA_DIR . '/orders.json', $orders);
 
     flock($lock, LOCK_UN);
     fclose($lock);
@@ -563,13 +629,14 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
         'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_menu', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
     ]);
 
-    $path = resolveSaleFilePath((string) $product['file']);
-    if ($path === null) {
-        sendMessage($chatId, t('purchase_missing_file', $lang));
-        return;
+    foreach ($selectedFiles as $item) {
+        $sent = sendDocument($chatId, $item['path'], $item['caption']);
+        if ($sent === null || !($sent['ok'] ?? false)) {
+            sendMessage($chatId, t('purchase_missing_file', $lang));
+            continue;
+        }
+        @unlink($item['path']);
     }
-
-    sendDocument($chatId, $path, $name);
 }
 
 function showAccount(int $chatId, int $messageId, string $userId, string $lang): void
