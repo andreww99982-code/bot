@@ -367,11 +367,11 @@ if (isset($_GET['api'])) {
         $parentId = trim((string) ($_POST['parent_id'] ?? ''));
         $nameRu = trim((string) ($_POST['name_ru'] ?? ''));
         $nameEn = trim((string) ($_POST['name_en'] ?? ''));
-        if ($parentId !== '' && !isset($categories[$parentId])) {
-            jsonResponse(['ok' => false, 'error' => 'bad_parent_category'], 400);
-        }
         if ($nameRu === '' && $nameEn === '') {
             jsonResponse(['ok' => false, 'error' => 'category_name_required'], 400);
+        }
+        if ($parentId !== '' && !isset($categories[$parentId])) {
+            jsonResponse(['ok' => false, 'error' => 'bad_parent_category'], 400);
         }
 
         $categories[$id] = [
@@ -1094,8 +1094,9 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     <div class="item-card">
                         <h4 style="margin-top:0">${tr('category_create')}</h4>
                         <form id="catForm" class="grid-2">
-                            <input name="name_ru" data-i18n-placeholder="name_ru" placeholder="${tr('name_ru')}">
-                            <input name="name_en" data-i18n-placeholder="name_en" placeholder="${tr('name_en')}">
+                            <div id="cat-name-hint" class="muted" style="grid-column:1/-1">${tr('fill_one_name')}</div>
+                            <input name="name_ru" aria-describedby="cat-name-hint" data-i18n-placeholder="name_ru" placeholder="${tr('name_ru')}">
+                            <input name="name_en" aria-describedby="cat-name-hint" data-i18n-placeholder="name_en" placeholder="${tr('name_en')}">
                             <textarea name="description_ru" data-i18n-placeholder="description_ru" placeholder="${tr('description_ru')}"></textarea>
                             <textarea name="description_en" data-i18n-placeholder="description_en" placeholder="${tr('description_en')}"></textarea>
                             <div class="optional-block">
@@ -1108,17 +1109,18 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             <button class="btn-accent" style="grid-column:1/-1">${tr('add_category')}</button>
                         </form>
                     </div>
-                    <div class="category-list">
+                    <div class="category-list" role="tree" aria-label="${tr('category_tree_title')}">
                         <h4 class="category-tree-title">${tr('category_tree_title')}</h4>
                         ${rows.map(({category, depth})=>{
                             const children = childrenMap[category.id] || [];
                             const parentName = category.parent_id ? categoryName(allCats.find(c=>c.id===category.parent_id)) : '—';
                             const disallowDelete = children.length > 0 || (directProductCountByCategory[category.id]||0) > 0;
                             const icon = depth > 0 ? '📂' : '📁';
-                            return `<div class="item-card">
+                            const expandedAttr = children.length > 0 ? ' aria-expanded="true"' : '';
+                            return `<div class="item-card" role="treeitem" aria-level="${depth + 1}"${expandedAttr}>
                                 <div class="row" style="justify-content:space-between;align-items:center">
                                     <div>
-                                        <b class="category-tree-label" style="margin-left:${Math.max(0, depth) * 18}px">${icon} ${esc(categoryName(category))}</b>
+                                        <b class="category-tree-label" style="margin-left:${depth * 18}px">${icon} ${esc(categoryName(category))}</b>
                                         <div class="item-meta">
                                             <span>RU: ${esc(category.name?.ru||'')}</span>
                                             <span>EN: ${esc(category.name?.en||'')}</span>
@@ -1155,7 +1157,6 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     if(!nameRu && !nameEn){ showToast(tr('fill_one_name'), 'error'); return; }
                     const res = await fetch('?api=create_category',{method:'POST',body:new FormData(catForm)});
                     const j = await res.json();
-                    if(j?.error === 'category_name_required'){ showToast(tr('fill_one_name'), 'error'); return; }
                     if(!j.ok){ showToast(apiError(j, 'request_failed'), 'error'); return; }
                     await load();
                     showToast(tr('created_ok'));
