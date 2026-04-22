@@ -6,6 +6,7 @@ define('BOT_TOKEN', (string) (getenv('BOT_TOKEN') ?: ''));
 define('WEBHOOK_URL', (string) (getenv('WEBHOOK_URL') ?: ''));
 define('WEBHOOK_SECRET', (string) (getenv('WEBHOOK_SECRET') ?: ''));
 define('ADMIN_PASSWORD', (string) (getenv('ADMIN_PASSWORD') ?: 'changeme'));
+define('REFERRAL_PERCENT', (float) (getenv('REFERRAL_PERCENT') ?: 5));
 
 define('BASE_DIR', __DIR__);
 define('DATA_DIR', BASE_DIR . '/data');
@@ -35,6 +36,7 @@ $defaults = [
         'currency' => 'RUB',
         'currency_symbol' => '₽',
         'support_username' => '',
+        'bot_username' => '',
         'help_text' => [
             'ru' => '',
             'en' => '',

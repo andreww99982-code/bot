@@ -47,6 +47,28 @@ function sendTelegramTopupNotification(string $userId, string $text): void
     curl_close($ch);
 }
 
+function sendTelegramMessageByBotToken(string $chatId, string $text): void
+{
+    $token = (string) (getenv('BOT_TOKEN') ?: '');
+    if ($token === '' || $chatId === '' || $text === '') {
+        return;
+    }
+
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => 'Content-Type: application/json',
+            'content' => json_encode([
+                'chat_id' => $chatId,
+                'text' => $text,
+            ], JSON_UNESCAPED_UNICODE),
+            'timeout' => 10,
+        ],
+    ]);
+
+    @file_get_contents('https://api.telegram.org/bot' . $token . '/sendMessage', false, $context);
+}
+
 function normalizeProductBundles(array $product): array
 {
     $bundles = [];
@@ -521,9 +543,26 @@ if (isset($_GET['api'])) {
 
         $settings = readJson(SETTINGS_FILE);
         $users[$id]['balance'] = round((float) ($users[$id]['balance'] ?? 0) + $amount, 2);
+        $symbol = (string) ($settings['currency_symbol'] ?? '₽');
+
+        $referrerId = (string) ($users[$id]['referred_by'] ?? '');
+        if ($referrerId !== '' && $referrerId !== $id && isset($users[$referrerId])) {
+            $bonus = round($amount * REFERRAL_PERCENT / 100, 2);
+            if ($bonus > 0) {
+                $users[$referrerId]['balance'] = round((float) ($users[$referrerId]['balance'] ?? 0) + $bonus, 2);
+                $users[$referrerId]['referral_earned'] = round((float) ($users[$referrerId]['referral_earned'] ?? 0) + $bonus, 2);
+
+                $refLang = ((string) ($users[$referrerId]['lang'] ?? 'ru')) === 'en' ? 'en' : 'ru';
+                $bonusText = number_format($bonus, 2, '.', '');
+                $refMessage = $refLang === 'en'
+                    ? "💰 Referral bonus!\nSomeone topped up via your link.\nYou received: {$bonusText} {$symbol}"
+                    : "💰 Партнёрский бонус!\nПо вашей ссылке пополнили баланс.\nВам начислено: {$bonusText} {$symbol}";
+                sendTelegramMessageByBotToken($referrerId, $refMessage);
+            }
+        }
+
         writeJson(USERS_FILE, $users);
         $lang = ((string) ($users[$id]['lang'] ?? 'ru')) === 'en' ? 'en' : 'ru';
-        $symbol = (string) ($settings['currency_symbol'] ?? '₽');
         $amountText = number_format($amount, 2, '.', '');
         $balanceText = number_format((float) $users[$id]['balance'], 2, '.', '');
         $message = $lang === 'en'
@@ -553,6 +592,7 @@ if (isset($_GET['api'])) {
         $currencySymbol = trim((string) ($_POST['currency_symbol'] ?? ($settings['currency_symbol'] ?? '₽')));
         $settings['currency_symbol'] = function_exists('mb_substr') ? mb_substr($currencySymbol, 0, 5) : substr($currencySymbol, 0, 5);
         $settings['support_username'] = preg_replace('/[^a-zA-Z0-9_]/', '', ltrim((string) ($_POST['support_username'] ?? ($settings['support_username'] ?? '')), '@'));
+        $settings['bot_username'] = preg_replace('/[^a-zA-Z0-9_]/', '', ltrim((string) ($_POST['bot_username'] ?? ($settings['bot_username'] ?? '')), '@'));
         $settings['help_text'] = [
             'ru' => trim((string) ($_POST['help_text_ru'] ?? '')),
             'en' => trim((string) ($_POST['help_text_en'] ?? '')),
@@ -1159,6 +1199,8 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                         <input id="currencyInput" name="currency" maxlength="5" value="${esc(state.settings.currency||'RUB')}" placeholder="Код валюты (USD/RUB/EUR)">
                         <input name="currency_symbol" maxlength="5" value="${esc(state.settings.currency_symbol||'₽')}" placeholder="Символ валюты ($, ₽, €)">
                         <input id="supportInput" name="support_username" value="${esc(state.settings.support_username||'')}" placeholder="username саппорта (без @)">
+                        <label for="botUsernameInput">Username бота (без @)</label>
+                        <input id="botUsernameInput" type="text" name="bot_username" value="${esc(state.settings.bot_username||'')}" placeholder="mybot">
                         <textarea name="help_text_ru" placeholder="Текст помощи (RU)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.ru||'')}</textarea>
                         <textarea name="help_text_en" placeholder="Help text (EN)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.en||'')}</textarea>
                         <button>Сохранить</button>
@@ -1172,6 +1214,10 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 const supportInput = document.getElementById('supportInput');
                 if(supportInput){
                     supportInput.oninput = ()=>{ supportInput.value = supportInput.value.replace(/^@+/, '').replace(/[^a-zA-Z0-9_]/g, ''); };
+                }
+                const botUsernameInput = document.getElementById('botUsernameInput');
+                if(botUsernameInput){
+                    botUsernameInput.oninput = ()=>{ botUsernameInput.value = botUsernameInput.value.replace(/^@+/, '').replace(/[^a-zA-Z0-9_]/g, ''); };
                 }
 
                 settingsForm.onsubmit = async (e)=>{
@@ -1195,6 +1241,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 state.settings.currency = state.settings.currency || 'RUB';
                 state.settings.currency_symbol = state.settings.currency_symbol || '₽';
                 state.settings.support_username = state.settings.support_username || '';
+                state.settings.bot_username = state.settings.bot_username || '';
                 state.settings.help_text = state.settings.help_text || {ru:'',en:''};
                 state.stats = j.stats||{};
                 renderStats(); renderCategories(); renderProducts(); renderUsers(); renderSettings();

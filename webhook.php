@@ -57,6 +57,7 @@ function processUpdate(array $update): void
     }
 
     $users = readJson(USERS_FILE);
+    $isNewUser = !isset($users[$userId]);
     $user = $users[$userId] ?? [
         'id' => (int) $userId,
         'first_name' => (string) ($userRaw['first_name'] ?? 'User'),
@@ -74,6 +75,16 @@ function processUpdate(array $update): void
     $text = trim((string) ($message['text'] ?? ''));
 
     if (str_starts_with($text, '/start')) {
+        if (str_starts_with($text, '/start ref_')) {
+            $referrerId = trim(substr($text, 11));
+            $alreadyReferred = (string) ($user['referred_by'] ?? '') !== '';
+            if (($isNewUser || !$alreadyReferred) && $referrerId !== '' && $referrerId !== $userId && isset($users[$referrerId])) {
+                $user['referred_by'] = $referrerId;
+                $users[$userId] = $user;
+                writeJson(USERS_FILE, $users);
+            }
+        }
+
         if (($user['lang'] ?? '') === '') {
             sendMessage($chatId, t('choose_lang', 'ru'), [
                 'reply_markup' => json_encode([
@@ -167,6 +178,11 @@ function handleCallback(array $callback): void
         return;
     }
 
+    if ($data === 'menu:referral') {
+        showReferralPage($chatId, $messageId, $userId, $lang);
+        return;
+    }
+
     if ($data === 'menu:help') {
         $settings = readJson(SETTINGS_FILE);
         $help = trim((string) (($settings['help_text'][$lang] ?? $settings['help_text']['ru'] ?? '')));
@@ -211,6 +227,7 @@ function sendMainMenu(int $chatId, string $lang, bool $edit = false, string $nam
         'inline_keyboard' => [
             [['text' => t('btn_catalog', $lang), 'callback_data' => 'menu:catalog']],
             [['text' => t('btn_account', $lang), 'callback_data' => 'menu:account']],
+            [['text' => t('btn_referral', $lang), 'callback_data' => 'menu:referral']],
             [['text' => t('btn_help', $lang), 'callback_data' => 'menu:help']],
         ],
     ];
@@ -760,6 +777,45 @@ function showTopup(int $chatId, int $messageId, string $userId, string $lang): v
 
     safeEditMessage($chatId, $messageId, t('topup_text', $lang, ['admin_username' => $admin, 'user_id' => $userId]), [
         'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => 'menu:account']]]], JSON_UNESCAPED_UNICODE),
+    ]);
+}
+
+function showReferralPage(int $chatId, int $messageId, string $userId, string $lang): void
+{
+    $users = readJson(USERS_FILE);
+    $settings = readJson(SETTINGS_FILE);
+    $user = $users[$userId] ?? null;
+    if (!$user) {
+        return;
+    }
+
+    $referralCount = 0;
+    foreach ($users as $otherUser) {
+        if ((string) ($otherUser['referred_by'] ?? '') === $userId) {
+            $referralCount++;
+        }
+    }
+
+    $botUsername = preg_replace('/[^a-zA-Z0-9_]/', '', ltrim(trim((string) ($settings['bot_username'] ?? '')), '@'));
+    $link = $botUsername !== ''
+        ? 'https://t.me/' . $botUsername . '?start=ref_' . $userId
+        : 'https://t.me/НАСТРОЙТЕ_USERNAME_БОТА?start=ref_' . $userId;
+
+    $percent = rtrim(rtrim(number_format(REFERRAL_PERCENT, 2, '.', ''), '0'), '.');
+    $earned = formatPrice((float) ($user['referral_earned'] ?? 0.0), $settings);
+    $text = t('referral_title', $lang, [
+        'percent' => $percent,
+        'count' => (string) $referralCount,
+        'earned' => $earned,
+        'link' => $link,
+    ]);
+
+    if ($botUsername === '') {
+        $text .= "\n\n" . t('referral_fallback', $lang, ['user_id' => $userId]);
+    }
+
+    safeEditMessage($chatId, $messageId, $text, [
+        'reply_markup' => json_encode(['inline_keyboard' => [[['text' => t('btn_back', $lang), 'callback_data' => 'main']]]], JSON_UNESCAPED_UNICODE),
     ]);
 }
 
