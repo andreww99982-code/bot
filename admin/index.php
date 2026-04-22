@@ -69,6 +69,58 @@ function sendTelegramMessageByBotToken(string $chatId, string $text): void
     @file_get_contents('https://api.telegram.org/bot' . $token . '/sendMessage', false, $context);
 }
 
+function setWebhookEndpoint(): void
+{
+    $token = trim((string) (getenv('BOT_TOKEN') ?: ''));
+    if ($token === '') {
+        jsonResponse(['ok' => false, 'error' => 'bot_token_missing'], 500);
+    }
+
+    $webhookUrl = trim((string) ($_POST['webhook_url'] ?? ''));
+    if ($webhookUrl === '' || !preg_match('/^https:\/\//i', $webhookUrl)) {
+        jsonResponse(['ok' => false, 'error' => 'bad_webhook_url'], 400);
+    }
+
+    $secret = getenv('WEBHOOK_SECRET');
+    $payload = ['url' => $webhookUrl];
+    if ($secret !== false && trim((string) $secret) !== '') {
+        $payload['secret_token'] = trim((string) $secret);
+    }
+
+    $apiUrl = 'https://api.telegram.org/bot' . $token . '/setWebhook';
+    $ch = curl_init($apiUrl);
+    if ($ch === false) {
+        jsonResponse(['ok' => false, 'error' => 'webhook_request_failed'], 500);
+    }
+
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_TIMEOUT => 20,
+    ]);
+    $raw = curl_exec($ch);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($raw === false) {
+        jsonResponse(['ok' => false, 'error' => 'webhook_request_failed', 'description' => $curlError !== '' ? $curlError : 'setWebhook request failed'], 502);
+    }
+
+    $telegram = json_decode((string) $raw, true);
+    if (!is_array($telegram)) {
+        jsonResponse(['ok' => false, 'error' => 'bad_telegram_response'], 502);
+    }
+
+    if (($telegram['ok'] ?? false) !== true) {
+        $description = trim((string) ($telegram['description'] ?? 'unknown telegram error'));
+        jsonResponse(['ok' => false, 'error' => 'webhook_set_failed', 'description' => $description, 'telegram' => $telegram], 400);
+    }
+
+    jsonResponse(['ok' => true, 'message' => 'Вебхук установлен!', 'telegram' => $telegram]);
+}
+
 function normalizeProductBundles(array $product): array
 {
     $bundles = [];
@@ -699,6 +751,11 @@ if (isset($_GET['api'])) {
     jsonResponse(['ok' => false, 'error' => 'unknown_api'], 404);
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') === 'set_webhook') {
+    requireAuth();
+    setWebhookEndpoint();
+}
+
 $auth = (bool) ($_SESSION['admin_auth'] ?? false);
 ?>
 <!doctype html>
@@ -854,29 +911,29 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 ru: {
                     admin_title:'Панель управления', logout_btn:'Выйти', tab_categories:'📦 Категории', tab_products:'🗂 Товары', tab_users:'👥 Пользователи', tab_settings:'⚙️ Настройки',
                     stats_title:'📊 Статистика', stats_users:'Всего пользователей', stats_sales:'Всего продаж', stats_revenue:'Общая выручка', latest_purchases:'Последние покупки', no_data:'Нет данных',
-                    categories_title:'📦 Категории', category_create:'Создать категорию', parent_optional:'Родительская категория (необязательно)', name_ru:'Название RU', name_en:'Название EN', description_ru:'Описание RU', description_en:'Описание EN', add_category:'Добавить категорию', no_categories:'Нет категорий',
+                    categories_title:'📦 Категории', category_create:'Создать категорию', parent_optional:'Родительская категория (необязательно)', parent_category:'Родительская категория', root_category:'— Корневая категория —', name_ru:'Название RU', name_en:'Название EN', description_ru:'Описание RU', description_en:'Описание EN', add_category:'Добавить категорию', no_categories:'Нет категорий',
                     products_title:'🗂 Товары', search_products:'Поиск: название (RU/EN) или категория', found_products:'Найдено: {count} товаров', product_create:'Добавить товар', main_block:'Основное', description_block:'Описание', price_category:'Цена и категория', media_block:'Медиа', category:'Категория', price:'Цена', add_product:'Добавить товар',
                     preview_drop:'Перетащите изображение сюда или выберите вручную', files_drop:'Перетащите архивы сюда или выберите вручную', archives_count:'Архивов: {count}', edit:'✏️ Редактировать', archives:'📦 Архивы ({count})', delete:'🗑 Удалить', save:'Сохранить',
                     users_title:'👥 Пользователи', search_users:'Поиск: Telegram ID, имя, username', found_users:'Найдено: {count} пользователей', topup:'Пополнить', history:'История', history_empty:'История пуста', history_loaded:'История загружена',
-                    settings_title:'⚙️ Настройки', bot_block:'Бот', currency_block:'Валюта', referral_block:'Партнёрская программа', support_block:'Саппорт', help_texts:'Тексты помощи', logo_block:'Логотип бота', upload_logo:'Загрузить логотип', delete_logo:'Удалить логотип',
+                    settings_title:'⚙️ Настройки', bot_block:'Бот', currency_block:'Валюта', referral_block:'Партнёрская программа', support_block:'Саппорт', webhook_block:'Вебхук', webhook_url:'Webhook URL', set_webhook_btn:'🔗 Установить вебхук', webhook_set_success:'Вебхук установлен!', help_texts:'Тексты помощи', logo_block:'Логотип бота', upload_logo:'Загрузить логотип', delete_logo:'Удалить логотип',
                     bot_username:'Username бота', admin_username:'Username администратора', currency_code:'Код валюты', currency_symbol:'Символ валюты', referral_percent:'Процент реферального бонуса (%)', support_username:'Username саппорта', help_ru:'Текст помощи RU', help_en:'Текст помощи EN',
                     save_settings:'Сохранить настройки', settings_hint:'admin_username показывается пользователям в инструкции пополнения. support_username используется в разделе помощи.',
                     logo_uploaded:'Логотип загружен', logo_deleted:'Логотип удалён',
-                    err_prefix:'Ошибка', unauthorized:'требуется авторизация', wrong_password:'неверный пароль', category_has_products:'у категории есть товары', category_has_subcategories:'у категории есть подкатегории', category_not_found:'категория не найдена', bad_category:'категория не найдена', bad_parent_category:'родительская категория не найдена', bad_amount:'некорректная сумма', user_not_found:'пользователь не найден', no_files:'выберите файлы', no_valid_files:'нет валидных файлов', zip_create_failed:'не удалось создать архив', preview_invalid_type:'поддерживаются только изображения (jpg/png/webp/gif)', preview_upload_failed:'не удалось загрузить изображение', product_not_found:'товар не найден', bundle_not_found:'архив не найден', username_invalid_format:'username администратора некорректный', unknown_api:'неизвестный API-метод', logo_invalid_type:'поддерживаются jpg/png/webp', logo_upload_failed:'не удалось загрузить логотип',
+                    err_prefix:'Ошибка', unauthorized:'требуется авторизация', wrong_password:'неверный пароль', category_has_products:'у категории есть товары', category_has_subcategories:'у категории есть подкатегории', category_not_found:'категория не найдена', bad_category:'категория не найдена', bad_parent_category:'родительская категория не найдена', bad_amount:'некорректная сумма', user_not_found:'пользователь не найден', no_files:'выберите файлы', no_valid_files:'нет валидных файлов', zip_create_failed:'не удалось создать архив', preview_invalid_type:'поддерживаются только изображения (jpg/png/webp/gif)', preview_upload_failed:'не удалось загрузить изображение', product_not_found:'товар не найден', bundle_not_found:'архив не найден', username_invalid_format:'username администратора некорректный', unknown_api:'неизвестный API-метод', logo_invalid_type:'поддерживаются jpg/png/webp', logo_upload_failed:'не удалось загрузить логотип', bad_webhook_url:'webhook должен начинаться с https://', bot_token_missing:'BOT_TOKEN не задан', webhook_request_failed:'не удалось отправить запрос к Telegram', bad_telegram_response:'невалидный ответ Telegram', webhook_set_failed:'не удалось установить вебхук',
                     created_ok:'Создано ✅', updated_ok:'Обновлено ✅', deleted_ok:'Удалено', request_failed:'ошибка запроса', loading_failed:'ошибка загрузки данных', upload_failed:'ошибка загрузки', logout_failed:'не удалось выйти', topup_prompt:'Сумма пополнения:'
                 },
                 en: {
                     admin_title:'Admin panel', logout_btn:'Logout', tab_categories:'📦 Categories', tab_products:'🗂 Products', tab_users:'👥 Users', tab_settings:'⚙️ Settings',
                     stats_title:'📊 Statistics', stats_users:'Total users', stats_sales:'Total sales', stats_revenue:'Total revenue', latest_purchases:'Latest purchases', no_data:'No data',
-                    categories_title:'📦 Categories', category_create:'Create category', parent_optional:'Parent category (optional)', name_ru:'Name RU', name_en:'Name EN', description_ru:'Description RU', description_en:'Description EN', add_category:'Add category', no_categories:'No categories',
+                    categories_title:'📦 Categories', category_create:'Create category', parent_optional:'Parent category (optional)', parent_category:'Parent category', root_category:'— Root category —', name_ru:'Name RU', name_en:'Name EN', description_ru:'Description RU', description_en:'Description EN', add_category:'Add category', no_categories:'No categories',
                     products_title:'🗂 Products', search_products:'Search: name (RU/EN) or category', found_products:'Found: {count} products', product_create:'Add product', main_block:'Main', description_block:'Description', price_category:'Price & category', media_block:'Media', category:'Category', price:'Price', add_product:'Add product',
                     preview_drop:'Drag and drop preview image or choose manually', files_drop:'Drag and drop archives or choose manually', archives_count:'Archives: {count}', edit:'✏️ Edit', archives:'📦 Archives ({count})', delete:'🗑 Delete', save:'Save',
                     users_title:'👥 Users', search_users:'Search: Telegram ID, name, username', found_users:'Found: {count} users', topup:'Top up', history:'History', history_empty:'History is empty', history_loaded:'History loaded',
-                    settings_title:'⚙️ Settings', bot_block:'Bot', currency_block:'Currency', referral_block:'Referral program', support_block:'Support', help_texts:'Help texts', logo_block:'Bot logo', upload_logo:'Upload logo', delete_logo:'Delete logo',
+                    settings_title:'⚙️ Settings', bot_block:'Bot', currency_block:'Currency', referral_block:'Referral program', support_block:'Support', webhook_block:'Webhook', webhook_url:'Webhook URL', set_webhook_btn:'🔗 Set webhook', webhook_set_success:'Webhook installed!', help_texts:'Help texts', logo_block:'Bot logo', upload_logo:'Upload logo', delete_logo:'Delete logo',
                     bot_username:'Bot username', admin_username:'Admin username', currency_code:'Currency code', currency_symbol:'Currency symbol', referral_percent:'Referral bonus percent (%)', support_username:'Support username', help_ru:'Help text RU', help_en:'Help text EN',
                     save_settings:'Save settings', settings_hint:'admin_username is shown in top-up instructions. support_username is used in the help section.',
                     logo_uploaded:'Logo uploaded', logo_deleted:'Logo deleted',
-                    err_prefix:'Error', unauthorized:'authorization required', wrong_password:'wrong password', category_has_products:'category has products', category_has_subcategories:'category has subcategories', category_not_found:'category not found', bad_category:'category not found', bad_parent_category:'parent category not found', bad_amount:'invalid amount', user_not_found:'user not found', no_files:'choose files', no_valid_files:'no valid files', zip_create_failed:'failed to create archive', preview_invalid_type:'only images are supported (jpg/png/webp/gif)', preview_upload_failed:'failed to upload image', product_not_found:'product not found', bundle_not_found:'archive not found', username_invalid_format:'invalid admin username', unknown_api:'unknown API method', logo_invalid_type:'only jpg/png/webp are supported', logo_upload_failed:'failed to upload logo',
+                    err_prefix:'Error', unauthorized:'authorization required', wrong_password:'wrong password', category_has_products:'category has products', category_has_subcategories:'category has subcategories', category_not_found:'category not found', bad_category:'category not found', bad_parent_category:'parent category not found', bad_amount:'invalid amount', user_not_found:'user not found', no_files:'choose files', no_valid_files:'no valid files', zip_create_failed:'failed to create archive', preview_invalid_type:'only images are supported (jpg/png/webp/gif)', preview_upload_failed:'failed to upload image', product_not_found:'product not found', bundle_not_found:'archive not found', username_invalid_format:'invalid admin username', unknown_api:'unknown API method', logo_invalid_type:'only jpg/png/webp are supported', logo_upload_failed:'failed to upload logo', bad_webhook_url:'webhook must start with https://', bot_token_missing:'BOT_TOKEN is not set', webhook_request_failed:'failed to send request to Telegram', bad_telegram_response:'invalid Telegram response', webhook_set_failed:'failed to set webhook',
                     created_ok:'Created ✅', updated_ok:'Updated ✅', deleted_ok:'Deleted', request_failed:'request failed', loading_failed:'failed to load data', upload_failed:'upload failed', logout_failed:'failed to logout', topup_prompt:'Top-up amount:'
                 },
             };
@@ -1029,7 +1086,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                         <h4 style="margin-top:0">${tr('category_create')}</h4>
                         <form id="catForm" class="grid-2">
                             <select name="parent_id">
-                                <option value="">${tr('parent_optional')}</option>
+                                <option value="">${tr('root_category')}</option>
                                 ${rows.map(({category, depth})=>`<option value="${esc(category.id)}">${esc(`${'— '.repeat(depth)}${categoryName(category)}`)}</option>`).join('')}
                             </select>
                             <div></div>
@@ -1064,7 +1121,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                                 <form id="edit-cat-${esc(category.id)}" class="grid-2 inline-form hidden" data-edit-category="${esc(category.id)}">
                                     <input type="hidden" name="id" value="${esc(category.id)}">
                                     <select name="parent_id">
-                                        <option value="">${tr('parent_optional')}</option>
+                                        <option value="">${tr('root_category')}</option>
                                         ${rows.filter(x=>x.category.id!==category.id).map(({category:c, depth:d})=>`<option value="${esc(c.id)}" ${String(category.parent_id||'')===String(c.id)?'selected':''}>${esc(`${'— '.repeat(d)}${categoryName(c)}`)}</option>`).join('')}
                                     </select>
                                     <div></div>
@@ -1431,6 +1488,18 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             </div>
                         </section>
                         <section class="settings-block">
+                            <div class="settings-block-title">${tr('webhook_block')}</div>
+                            <div class="settings-fields">
+                                <div class="settings-field full">
+                                    <label class="settings-label" for="webhookUrlInput">${tr('webhook_url')}</label>
+                                    <input id="webhookUrlInput" class="settings-input" name="webhook_url" readonly>
+                                </div>
+                                <div class="settings-field full">
+                                    <button type="button" id="setWebhookBtn" class="btn-accent">${tr('set_webhook_btn')}</button>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="settings-block">
                             <div class="settings-block-title">${tr('logo_block')}</div>
                             <div class="settings-fields">
                                 <div class="settings-field full">
@@ -1487,6 +1556,31 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                         if(value < 0){ value = 0; }
                         if(value > 100){ value = 100; }
                         referralPercentInput.value = String(value);
+                    };
+                }
+                const webhookUrlInput = document.getElementById('webhookUrlInput');
+                if(webhookUrlInput){
+                    webhookUrlInput.value = `${window.location.origin}/webhook.php`;
+                }
+                const setWebhookBtn = document.getElementById('setWebhookBtn');
+                if(setWebhookBtn){
+                    setWebhookBtn.onclick = async()=>{
+                        const webhookUrl = (webhookUrlInput?.value || '').trim();
+                        const fd = new FormData();
+                        fd.append('action', 'set_webhook');
+                        fd.append('webhook_url', webhookUrl);
+                        try{
+                            const res = await fetch('index.php', {method:'POST', body:fd});
+                            const j = await res.json();
+                            if(!j.ok){
+                                const description = String(j.description || j.telegram?.description || j.message || tr(j.error || 'request_failed'));
+                                showToast(`❌ ${tr('err_prefix')}: ${description}`, 'error');
+                                return;
+                            }
+                            showToast(`✅ ${tr('webhook_set_success')}`);
+                        }catch(_){
+                            showToast(`❌ ${tr('err_prefix')}: ${tr('request_failed')}`, 'error');
+                        }
                     };
                 }
 
