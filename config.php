@@ -11,6 +11,7 @@ define('REFERRAL_PERCENT', (float) (getenv('REFERRAL_PERCENT') ?: 5));
 define('BASE_DIR', __DIR__);
 define('DATA_DIR', BASE_DIR . '/data');
 define('FILES_DIR', BASE_DIR . '/files');
+define('PURCHASES_BACKUP_DIR', FILES_DIR . '/_purchases');
 define('LOG_DIR', BASE_DIR . '/logs');
 
 define('USERS_FILE', DATA_DIR . '/users.json');
@@ -20,7 +21,7 @@ define('SETTINGS_FILE', DATA_DIR . '/settings.json');
 
 define('TELEGRAM_API', 'https://api.telegram.org/bot' . BOT_TOKEN);
 
-$requiredDirs = [DATA_DIR, FILES_DIR, LOG_DIR, BASE_DIR . '/admin'];
+$requiredDirs = [DATA_DIR, FILES_DIR, PURCHASES_BACKUP_DIR, LOG_DIR, BASE_DIR . '/admin'];
 foreach ($requiredDirs as $dir) {
     if (!is_dir($dir)) {
         @mkdir($dir, 0755, true);
@@ -35,6 +36,7 @@ $defaults = [
         'admin_username' => 'admin',
         'currency' => 'RUB',
         'currency_symbol' => '₽',
+        'referral_percent' => REFERRAL_PERCENT,
         'support_username' => '',
         'bot_username' => '',
         'help_text' => [

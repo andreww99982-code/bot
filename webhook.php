@@ -696,6 +696,17 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
     $purchaseId = generateId();
     $name = (string) ($product['name'][$lang] ?? $product['name']['ru'] ?? 'Product');
     $bundleFiles = array_values(array_map(static fn (array $bundle): string => (string) ($bundle['file'] ?? ''), $selectedBundles));
+    $purchaseBackupDir = PURCHASES_BACKUP_DIR . '/' . $purchaseId;
+    if (!is_dir($purchaseBackupDir)) {
+        @mkdir($purchaseBackupDir, 0755, true);
+    }
+    $backupFiles = [];
+    foreach ($selectedFiles as $item) {
+        $backupPath = $purchaseBackupDir . '/' . basename((string) ($item['path'] ?? ''));
+        if (@copy((string) ($item['path'] ?? ''), $backupPath)) {
+            $backupFiles[] = $backupPath;
+        }
+    }
     $purchase = [
         'id' => $purchaseId,
         'product_id' => $product['id'],
@@ -704,6 +715,7 @@ function processBuy(int $chatId, int $messageId, string $userId, string $lang, s
         'date' => date('Y-m-d H:i:s'),
         'file' => (string) ($bundleFiles[0] ?? ''),
         'files' => $bundleFiles,
+        'backup_files' => $backupFiles,
         'qty' => $qty,
         'bundle_ids' => $selectedBundleIds,
     ];
@@ -802,7 +814,8 @@ function showReferralPage(int $chatId, int $messageId, string $userId, string $l
         ? 'https://t.me/' . $botUsername . '?start=ref_' . $userId
         : 'https://t.me/НАСТРОЙТЕ_USERNAME_БОТА?start=ref_' . $userId;
 
-    $percent = number_format(REFERRAL_PERCENT, 2, '.', '');
+    $percentValue = max(0.0, (float) ($settings['referral_percent'] ?? REFERRAL_PERCENT));
+    $percent = number_format($percentValue, 2, '.', '');
     if (substr($percent, -3) === '.00') {
         $percent = substr($percent, 0, -3);
     } else {
@@ -871,6 +884,22 @@ function redownload(int $chatId, int $messageId, string $userId, string $lang, s
     foreach ((array) ($user['purchases'] ?? []) as $purchase) {
         if (($purchase['id'] ?? '') !== $purchaseId) {
             continue;
+        }
+
+        $backupFiles = (array) ($purchase['backup_files'] ?? []);
+        if ($backupFiles) {
+            $sentAny = false;
+            foreach ($backupFiles as $backupPath) {
+                $resolved = resolveBackupFilePath((string) $backupPath);
+                if ($resolved === null) {
+                    continue;
+                }
+                sendDocument($chatId, $resolved, (string) ($purchase['product_name'] ?? 'file'));
+                $sentAny = true;
+            }
+            if ($sentAny) {
+                return;
+            }
         }
 
         $path = resolveSaleFilePath((string) ($purchase['file'] ?? ''));

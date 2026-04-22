@@ -214,6 +214,29 @@ function resolveSaleFilePath(string $relativePath): ?string
     return $target;
 }
 
+function resolveBackupFilePath(string $path): ?string
+{
+    $base = realpath(PURCHASES_BACKUP_DIR);
+    if ($base === false) {
+        @mkdir(PURCHASES_BACKUP_DIR, 0755, true);
+        $base = realpath(PURCHASES_BACKUP_DIR);
+        if ($base === false) {
+            return null;
+        }
+    }
+
+    $target = realpath($path);
+    if ($target === false || !is_file($target)) {
+        return null;
+    }
+
+    if (!str_starts_with($target, $base . DIRECTORY_SEPARATOR)) {
+        return null;
+    }
+
+    return $target;
+}
+
 function logEvent(string $msg, string $file = 'events.log'): void
 {
     $line = '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n";

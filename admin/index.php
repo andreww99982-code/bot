@@ -544,10 +544,11 @@ if (isset($_GET['api'])) {
         $settings = readJson(SETTINGS_FILE);
         $users[$id]['balance'] = round((float) ($users[$id]['balance'] ?? 0) + $amount, 2);
         $symbol = (string) ($settings['currency_symbol'] ?? '₽');
+        $referralPercent = max(0.0, (float) ($settings['referral_percent'] ?? REFERRAL_PERCENT));
 
         $referrerId = (string) ($users[$id]['referred_by'] ?? '');
         if ($referrerId !== '' && $referrerId !== $id && isset($users[$referrerId])) {
-            $bonus = round($amount * REFERRAL_PERCENT / 100, 2);
+            $bonus = round($amount * $referralPercent / 100, 2);
             if ($bonus > 0) {
                 $users[$referrerId]['balance'] = round((float) ($users[$referrerId]['balance'] ?? 0) + $bonus, 2);
                 $users[$referrerId]['referral_earned'] = round((float) ($users[$referrerId]['referral_earned'] ?? 0) + $bonus, 2);
@@ -591,6 +592,8 @@ if (isset($_GET['api'])) {
         $settings['currency'] = substr($currency, 0, 5);
         $currencySymbol = trim((string) ($_POST['currency_symbol'] ?? ($settings['currency_symbol'] ?? '₽')));
         $settings['currency_symbol'] = function_exists('mb_substr') ? mb_substr($currencySymbol, 0, 5) : substr($currencySymbol, 0, 5);
+        $referralPercent = (float) ($_POST['referral_percent'] ?? ($settings['referral_percent'] ?? REFERRAL_PERCENT));
+        $settings['referral_percent'] = round(max(0.0, min(100.0, $referralPercent)), 2);
         $settings['support_username'] = preg_replace('/[^a-zA-Z0-9_]/', '', ltrim((string) ($_POST['support_username'] ?? ($settings['support_username'] ?? '')), '@'));
         $settings['bot_username'] = preg_replace('/[^a-zA-Z0-9_]/', '', ltrim((string) ($_POST['bot_username'] ?? ($settings['bot_username'] ?? '')), '@'));
         $settings['help_text'] = [
@@ -631,6 +634,25 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
         .stat{background:#101624;border:1px solid #2a3345;border-radius:10px;padding:12px}
         .bar{height:8px;background:#1c2230;border-radius:100px;overflow:hidden}
         .bar>span{display:block;height:100%;background:#3f7cff;width:0}
+        .settings-layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+        .settings-block{background:#1a1a1a;border-radius:12px;padding:24px;margin-bottom:0;border:1px solid #2a2a2a}
+        .settings-block.full{grid-column:1/-1}
+        .settings-block-title{font-size:13px;font-weight:600;color:#6366f1;text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid #2a2a2a}
+        .settings-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+        .settings-field{display:flex;flex-direction:column}
+        .settings-field.full{grid-column:1/-1}
+        .settings-label{font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+        .settings-input{width:100%;padding:10px 14px;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:8px;color:#fff;font-size:15px;box-sizing:border-box}
+        .settings-input:focus{border-color:#6366f1;outline:none;box-shadow:0 0 0 3px rgba(99,102,241,.15)}
+        .settings-textarea{min-height:100px;resize:vertical}
+        .settings-save{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #6366f1;background:#6366f1;color:#fff;font-size:15px;font-weight:600}
+        .settings-save:hover{background:#5458db}
+        @media (max-width: 900px){
+            .settings-layout{grid-template-columns:1fr}
+        }
+        @media (max-width: 640px){
+            .settings-fields{grid-template-columns:1fr}
+        }
         .toast-container{position:fixed;bottom:20px;right:20px;z-index:9999}
         .toast{padding:12px 20px;border-radius:8px;margin-top:8px;color:#fff;font-size:14px;opacity:0;transition:opacity .3s}
         .toast.success{background:#22c55e}
@@ -1194,16 +1216,67 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
             function renderSettings(){
                 settings.innerHTML = `
                     <h3>⚙️ Настройки</h3>
-                    <form id="settingsForm" class="row">
-                        <input name="admin_username" value="${esc(state.settings.admin_username||'admin')}" placeholder="username администратора">
-                        <input id="currencyInput" name="currency" maxlength="5" value="${esc(state.settings.currency||'RUB')}" placeholder="Код валюты (USD/RUB/EUR)">
-                        <input name="currency_symbol" maxlength="5" value="${esc(state.settings.currency_symbol||'₽')}" placeholder="Символ валюты ($, ₽, €)">
-                        <input id="supportInput" name="support_username" value="${esc(state.settings.support_username||'')}" placeholder="username саппорта (без @)">
-                        <label for="botUsernameInput">Username бота (без @)</label>
-                        <input id="botUsernameInput" type="text" name="bot_username" value="${esc(state.settings.bot_username||'')}" placeholder="mybot">
-                        <textarea name="help_text_ru" placeholder="Текст помощи (RU)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.ru||'')}</textarea>
-                        <textarea name="help_text_en" placeholder="Help text (EN)" rows="4" style="min-width:320px;flex:1 1 320px">${esc(state.settings.help_text?.en||'')}</textarea>
-                        <button>Сохранить</button>
+                    <form id="settingsForm" class="settings-layout">
+                        <section class="settings-block">
+                            <div class="settings-block-title">Бот</div>
+                            <div class="settings-fields">
+                                <div class="settings-field">
+                                    <label class="settings-label" for="botUsernameInput">Username бота</label>
+                                    <input id="botUsernameInput" class="settings-input" type="text" name="bot_username" value="${esc(state.settings.bot_username||'')}" placeholder="mybot">
+                                </div>
+                                <div class="settings-field">
+                                    <label class="settings-label" for="adminUsernameInput">Username администратора</label>
+                                    <input id="adminUsernameInput" class="settings-input" name="admin_username" value="${esc(state.settings.admin_username||'admin')}" placeholder="admin">
+                                </div>
+                            </div>
+                        </section>
+                        <section class="settings-block">
+                            <div class="settings-block-title">Валюта</div>
+                            <div class="settings-fields">
+                                <div class="settings-field">
+                                    <label class="settings-label" for="currencyInput">Код валюты</label>
+                                    <input id="currencyInput" class="settings-input" name="currency" maxlength="5" value="${esc(state.settings.currency||'RUB')}" placeholder="USD / RUB / EUR">
+                                </div>
+                                <div class="settings-field">
+                                    <label class="settings-label" for="currencySymbolInput">Символ валюты</label>
+                                    <input id="currencySymbolInput" class="settings-input" name="currency_symbol" maxlength="5" value="${esc(state.settings.currency_symbol||'₽')}" placeholder="$ / ₽ / €">
+                                </div>
+                            </div>
+                        </section>
+                        <section class="settings-block">
+                            <div class="settings-block-title">Партнёрская программа</div>
+                            <div class="settings-fields">
+                                <div class="settings-field full">
+                                    <label class="settings-label" for="referralPercentInput">Процент реферального бонуса (%)</label>
+                                    <input id="referralPercentInput" class="settings-input" type="number" min="0" max="100" step="0.01" name="referral_percent" value="${esc(state.settings.referral_percent ?? 5)}" placeholder="5">
+                                </div>
+                            </div>
+                        </section>
+                        <section class="settings-block">
+                            <div class="settings-block-title">Саппорт</div>
+                            <div class="settings-fields">
+                                <div class="settings-field full">
+                                    <label class="settings-label" for="supportInput">Username саппорта</label>
+                                    <input id="supportInput" class="settings-input" name="support_username" value="${esc(state.settings.support_username||'')}" placeholder="support_username">
+                                </div>
+                            </div>
+                        </section>
+                        <section class="settings-block full">
+                            <div class="settings-block-title">Тексты помощи</div>
+                            <div class="settings-fields">
+                                <div class="settings-field full">
+                                    <label class="settings-label" for="helpTextRuInput">Текст помощи RU</label>
+                                    <textarea id="helpTextRuInput" class="settings-input settings-textarea" name="help_text_ru" placeholder="Текст помощи (RU)">${esc(state.settings.help_text?.ru||'')}</textarea>
+                                </div>
+                                <div class="settings-field full">
+                                    <label class="settings-label" for="helpTextEnInput">Текст помощи EN</label>
+                                    <textarea id="helpTextEnInput" class="settings-input settings-textarea" name="help_text_en" placeholder="Help text (EN)">${esc(state.settings.help_text?.en||'')}</textarea>
+                                </div>
+                                <div class="settings-field full">
+                                    <button class="settings-save">Сохранить</button>
+                                </div>
+                            </div>
+                        </section>
                     </form>
                     <div class="muted">admin_username показывается пользователям в инструкции пополнения. support_username используется в разделе помощи.</div>
                 `;
@@ -1218,6 +1291,21 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 const botUsernameInput = document.getElementById('botUsernameInput');
                 if(botUsernameInput){
                     botUsernameInput.oninput = ()=>{ botUsernameInput.value = botUsernameInput.value.replace(/^@+/, '').replace(/[^a-zA-Z0-9_]/g, ''); };
+                }
+                const adminUsernameInput = document.getElementById('adminUsernameInput');
+                if(adminUsernameInput){
+                    adminUsernameInput.oninput = ()=>{ adminUsernameInput.value = adminUsernameInput.value.replace(/^@+/, '').replace(/[^a-zA-Z0-9_]/g, ''); };
+                }
+                const referralPercentInput = document.getElementById('referralPercentInput');
+                if(referralPercentInput){
+                    referralPercentInput.oninput = ()=>{
+                        if(referralPercentInput.value === '') return;
+                        let value = Number(referralPercentInput.value);
+                        if(Number.isNaN(value)){ value = 0; }
+                        if(value < 0){ value = 0; }
+                        if(value > 100){ value = 100; }
+                        referralPercentInput.value = String(value);
+                    };
                 }
 
                 settingsForm.onsubmit = async (e)=>{
@@ -1242,6 +1330,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 state.settings.currency_symbol = state.settings.currency_symbol || '₽';
                 state.settings.support_username = state.settings.support_username || '';
                 state.settings.bot_username = state.settings.bot_username || '';
+                state.settings.referral_percent = Number(state.settings.referral_percent ?? 5);
                 state.settings.help_text = state.settings.help_text || {ru:'',en:''};
                 state.stats = j.stats||{};
                 renderStats(); renderCategories(); renderProducts(); renderUsers(); renderSettings();
