@@ -365,16 +365,21 @@ if (isset($_GET['api'])) {
         $categories = readJson(CATEGORIES_FILE);
         $id = generateId();
         $parentId = trim((string) ($_POST['parent_id'] ?? ''));
+        $nameRu = trim((string) ($_POST['name_ru'] ?? ''));
+        $nameEn = trim((string) ($_POST['name_en'] ?? ''));
         if ($parentId !== '' && !isset($categories[$parentId])) {
             jsonResponse(['ok' => false, 'error' => 'bad_parent_category'], 400);
+        }
+        if ($nameRu === '' && $nameEn === '') {
+            jsonResponse(['ok' => false, 'error' => 'category_name_required'], 400);
         }
 
         $categories[$id] = [
             'id' => $id,
             'parent_id' => $parentId !== '' ? $parentId : null,
             'name' => [
-                'ru' => trim((string) ($_POST['name_ru'] ?? '')),
-                'en' => trim((string) ($_POST['name_en'] ?? '')),
+                'ru' => $nameRu,
+                'en' => $nameEn,
             ],
             'description' => [
                 'ru' => trim((string) ($_POST['description_ru'] ?? '')),
@@ -811,6 +816,10 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
         .logo-preview{width:100px;height:100px;border-radius:18px;object-fit:cover;border:1px solid #2a2a2a;background:#111}
         .logo-drop{border:1px dashed #3a3a3a;padding:14px;border-radius:10px;text-align:center}
         .inline-form{margin-top:12px;padding-top:12px;border-top:1px solid #2a2a2a}
+        .optional-block{grid-column:1/-1;border-top:1px dashed #3a3a3a;padding-top:12px;opacity:.9}
+        .optional-label{display:block;margin:0 0 8px;color:#9aa4b5;font-size:13px}
+        .category-tree-title{margin:16px 0 10px;color:#b7c0d3;font-size:14px}
+        .category-tree-label{display:flex;align-items:center;gap:8px}
         @media (max-width: 900px){
             .settings-layout{grid-template-columns:1fr}
             .grid-2{grid-template-columns:1fr}
@@ -911,7 +920,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 ru: {
                     admin_title:'Панель управления', logout_btn:'Выйти', tab_categories:'📦 Категории', tab_products:'🗂 Товары', tab_users:'👥 Пользователи', tab_settings:'⚙️ Настройки',
                     stats_title:'📊 Статистика', stats_users:'Всего пользователей', stats_sales:'Всего продаж', stats_revenue:'Общая выручка', latest_purchases:'Последние покупки', no_data:'Нет данных',
-                    categories_title:'📦 Категории', category_create:'Создать категорию', parent_optional:'Родительская категория (необязательно)', parent_category:'Родительская категория', root_category:'— Корневая категория —', name_ru:'Название RU', name_en:'Название EN', description_ru:'Описание RU', description_en:'Описание EN', add_category:'Добавить категорию', no_categories:'Нет категорий',
+                    categories_title:'📦 Категории', category_create:'Создать категорию', parent_optional:'Родительская категория (необязательно)', parent_category:'Родительская категория', parent_category_optional_hint:'Родительская категория (необязательно — оставьте пустым для корневой категории)', root_category:'— Корневая категория —', create_as_root_category:'— Создать как корневую категорию —', category_tree_title:'Дерево категорий:', name_ru:'Название RU', name_en:'Название EN', description_ru:'Описание RU', description_en:'Описание EN', add_category:'Добавить категорию', no_categories:'Нет категорий',
                     products_title:'🗂 Товары', search_products:'Поиск: название (RU/EN) или категория', found_products:'Найдено: {count} товаров', product_create:'Добавить товар', main_block:'Основное', description_block:'Описание', price_category:'Цена и категория', media_block:'Медиа', category:'Категория', price:'Цена', add_product:'Добавить товар',
                     preview_drop:'Перетащите изображение сюда или выберите вручную', files_drop:'Перетащите архивы сюда или выберите вручную', archives_count:'Архивов: {count}', edit:'✏️ Редактировать', archives:'📦 Архивы ({count})', delete:'🗑 Удалить', save:'Сохранить',
                     users_title:'👥 Пользователи', search_users:'Поиск: Telegram ID, имя, username', found_users:'Найдено: {count} пользователей', topup:'Пополнить', history:'История', history_empty:'История пуста', history_loaded:'История загружена',
@@ -919,13 +928,13 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     bot_username:'Username бота', admin_username:'Username администратора', currency_code:'Код валюты', currency_symbol:'Символ валюты', referral_percent:'Процент реферального бонуса (%)', support_username:'Username саппорта', help_ru:'Текст помощи RU', help_en:'Текст помощи EN',
                     save_settings:'Сохранить настройки', settings_hint:'admin_username показывается пользователям в инструкции пополнения. support_username используется в разделе помощи.',
                     logo_uploaded:'Логотип загружен', logo_deleted:'Логотип удалён',
-                    err_prefix:'Ошибка', unauthorized:'требуется авторизация', wrong_password:'неверный пароль', category_has_products:'у категории есть товары', category_has_subcategories:'у категории есть подкатегории', category_not_found:'категория не найдена', bad_category:'категория не найдена', bad_parent_category:'родительская категория не найдена', bad_amount:'некорректная сумма', user_not_found:'пользователь не найден', no_files:'выберите файлы', no_valid_files:'нет валидных файлов', zip_create_failed:'не удалось создать архив', preview_invalid_type:'поддерживаются только изображения (jpg/png/webp/gif)', preview_upload_failed:'не удалось загрузить изображение', product_not_found:'товар не найден', bundle_not_found:'архив не найден', username_invalid_format:'username администратора некорректный', unknown_api:'неизвестный API-метод', logo_invalid_type:'поддерживаются jpg/png/webp', logo_upload_failed:'не удалось загрузить логотип', bad_webhook_url:'webhook должен начинаться с https://', bot_token_missing:'BOT_TOKEN не задан', webhook_request_failed:'не удалось отправить запрос к Telegram', bad_telegram_response:'невалидный ответ Telegram', webhook_set_failed:'не удалось установить вебхук',
-                    created_ok:'Создано ✅', updated_ok:'Обновлено ✅', deleted_ok:'Удалено', request_failed:'ошибка запроса', loading_failed:'ошибка загрузки данных', upload_failed:'ошибка загрузки', logout_failed:'не удалось выйти', topup_prompt:'Сумма пополнения:'
+                    err_prefix:'Ошибка', unauthorized:'требуется авторизация', wrong_password:'неверный пароль', category_has_products:'у категории есть товары', category_has_subcategories:'у категории есть подкатегории', category_not_found:'категория не найдена', bad_category:'категория не найдена', bad_parent_category:'родительская категория не найдена', category_name_required:'Заполните хотя бы одно название', bad_amount:'некорректная сумма', user_not_found:'пользователь не найден', no_files:'выберите файлы', no_valid_files:'нет валидных файлов', zip_create_failed:'не удалось создать архив', preview_invalid_type:'поддерживаются только изображения (jpg/png/webp/gif)', preview_upload_failed:'не удалось загрузить изображение', product_not_found:'товар не найден', bundle_not_found:'архив не найден', username_invalid_format:'username администратора некорректный', unknown_api:'неизвестный API-метод', logo_invalid_type:'поддерживаются jpg/png/webp', logo_upload_failed:'не удалось загрузить логотип', bad_webhook_url:'webhook должен начинаться с https://', bot_token_missing:'BOT_TOKEN не задан', webhook_request_failed:'не удалось отправить запрос к Telegram', bad_telegram_response:'невалидный ответ Telegram', webhook_set_failed:'не удалось установить вебхук',
+                    created_ok:'Создано ✅', updated_ok:'Обновлено ✅', deleted_ok:'Удалено', request_failed:'ошибка запроса', loading_failed:'ошибка загрузки данных', upload_failed:'ошибка загрузки', logout_failed:'не удалось выйти', topup_prompt:'Сумма пополнения:', fill_one_name:'Заполните хотя бы одно название'
                 },
                 en: {
                     admin_title:'Admin panel', logout_btn:'Logout', tab_categories:'📦 Categories', tab_products:'🗂 Products', tab_users:'👥 Users', tab_settings:'⚙️ Settings',
                     stats_title:'📊 Statistics', stats_users:'Total users', stats_sales:'Total sales', stats_revenue:'Total revenue', latest_purchases:'Latest purchases', no_data:'No data',
-                    categories_title:'📦 Categories', category_create:'Create category', parent_optional:'Parent category (optional)', parent_category:'Parent category', root_category:'— Root category —', name_ru:'Name RU', name_en:'Name EN', description_ru:'Description RU', description_en:'Description EN', add_category:'Add category', no_categories:'No categories',
+                    categories_title:'📦 Categories', category_create:'Create category', parent_optional:'Parent category (optional)', parent_category:'Parent category', parent_category_optional_hint:'Parent category (optional — leave empty for root)', root_category:'— Root category —', create_as_root_category:'— Create as root category —', category_tree_title:'Category tree:', name_ru:'Name RU', name_en:'Name EN', description_ru:'Description RU', description_en:'Description EN', add_category:'Add category', no_categories:'No categories',
                     products_title:'🗂 Products', search_products:'Search: name (RU/EN) or category', found_products:'Found: {count} products', product_create:'Add product', main_block:'Main', description_block:'Description', price_category:'Price & category', media_block:'Media', category:'Category', price:'Price', add_product:'Add product',
                     preview_drop:'Drag and drop preview image or choose manually', files_drop:'Drag and drop archives or choose manually', archives_count:'Archives: {count}', edit:'✏️ Edit', archives:'📦 Archives ({count})', delete:'🗑 Delete', save:'Save',
                     users_title:'👥 Users', search_users:'Search: Telegram ID, name, username', found_users:'Found: {count} users', topup:'Top up', history:'History', history_empty:'History is empty', history_loaded:'History loaded',
@@ -933,8 +942,8 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     bot_username:'Bot username', admin_username:'Admin username', currency_code:'Currency code', currency_symbol:'Currency symbol', referral_percent:'Referral bonus percent (%)', support_username:'Support username', help_ru:'Help text RU', help_en:'Help text EN',
                     save_settings:'Save settings', settings_hint:'admin_username is shown in top-up instructions. support_username is used in the help section.',
                     logo_uploaded:'Logo uploaded', logo_deleted:'Logo deleted',
-                    err_prefix:'Error', unauthorized:'authorization required', wrong_password:'wrong password', category_has_products:'category has products', category_has_subcategories:'category has subcategories', category_not_found:'category not found', bad_category:'category not found', bad_parent_category:'parent category not found', bad_amount:'invalid amount', user_not_found:'user not found', no_files:'choose files', no_valid_files:'no valid files', zip_create_failed:'failed to create archive', preview_invalid_type:'only images are supported (jpg/png/webp/gif)', preview_upload_failed:'failed to upload image', product_not_found:'product not found', bundle_not_found:'archive not found', username_invalid_format:'invalid admin username', unknown_api:'unknown API method', logo_invalid_type:'only jpg/png/webp are supported', logo_upload_failed:'failed to upload logo', bad_webhook_url:'webhook must start with https://', bot_token_missing:'BOT_TOKEN is not set', webhook_request_failed:'failed to send request to Telegram', bad_telegram_response:'invalid Telegram response', webhook_set_failed:'failed to set webhook',
-                    created_ok:'Created ✅', updated_ok:'Updated ✅', deleted_ok:'Deleted', request_failed:'request failed', loading_failed:'failed to load data', upload_failed:'upload failed', logout_failed:'failed to logout', topup_prompt:'Top-up amount:'
+                    err_prefix:'Error', unauthorized:'authorization required', wrong_password:'wrong password', category_has_products:'category has products', category_has_subcategories:'category has subcategories', category_not_found:'category not found', bad_category:'category not found', bad_parent_category:'parent category not found', category_name_required:'Fill in at least one name', bad_amount:'invalid amount', user_not_found:'user not found', no_files:'choose files', no_valid_files:'no valid files', zip_create_failed:'failed to create archive', preview_invalid_type:'only images are supported (jpg/png/webp/gif)', preview_upload_failed:'failed to upload image', product_not_found:'product not found', bundle_not_found:'archive not found', username_invalid_format:'invalid admin username', unknown_api:'unknown API method', logo_invalid_type:'only jpg/png/webp are supported', logo_upload_failed:'failed to upload logo', bad_webhook_url:'webhook must start with https://', bot_token_missing:'BOT_TOKEN is not set', webhook_request_failed:'failed to send request to Telegram', bad_telegram_response:'invalid Telegram response', webhook_set_failed:'failed to set webhook',
+                    created_ok:'Created ✅', updated_ok:'Updated ✅', deleted_ok:'Deleted', request_failed:'request failed', loading_failed:'failed to load data', upload_failed:'upload failed', logout_failed:'failed to logout', topup_prompt:'Top-up amount:', fill_one_name:'Fill in at least one name'
                 },
             };
             const browserLang = (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en';
@@ -1085,27 +1094,31 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     <div class="item-card">
                         <h4 style="margin-top:0">${tr('category_create')}</h4>
                         <form id="catForm" class="grid-2">
-                            <select name="parent_id">
-                                <option value="">${tr('root_category')}</option>
-                                ${rows.map(({category, depth})=>`<option value="${esc(category.id)}">${esc(`${'— '.repeat(depth)}${categoryName(category)}`)}</option>`).join('')}
-                            </select>
-                            <div></div>
-                            <input name="name_ru" data-i18n-placeholder="name_ru" placeholder="${tr('name_ru')}" required>
-                            <input name="name_en" data-i18n-placeholder="name_en" placeholder="${tr('name_en')}" required>
+                            <input name="name_ru" data-i18n-placeholder="name_ru" placeholder="${tr('name_ru')}">
+                            <input name="name_en" data-i18n-placeholder="name_en" placeholder="${tr('name_en')}">
                             <textarea name="description_ru" data-i18n-placeholder="description_ru" placeholder="${tr('description_ru')}"></textarea>
                             <textarea name="description_en" data-i18n-placeholder="description_en" placeholder="${tr('description_en')}"></textarea>
+                            <div class="optional-block">
+                                <label class="optional-label">${tr('parent_category_optional_hint')}</label>
+                                <select name="parent_id">
+                                    <option value="">${tr('create_as_root_category')}</option>
+                                    ${rows.map(({category, depth})=>`<option value="${esc(category.id)}">${esc(`${'— '.repeat(depth)}${categoryName(category)}`)}</option>`).join('')}
+                                </select>
+                            </div>
                             <button class="btn-accent" style="grid-column:1/-1">${tr('add_category')}</button>
                         </form>
                     </div>
                     <div class="category-list">
+                        <h4 class="category-tree-title">${tr('category_tree_title')}</h4>
                         ${rows.map(({category, depth})=>{
                             const children = childrenMap[category.id] || [];
                             const parentName = category.parent_id ? categoryName(allCats.find(c=>c.id===category.parent_id)) : '—';
                             const disallowDelete = children.length > 0 || (directProductCountByCategory[category.id]||0) > 0;
+                            const icon = depth > 0 ? '📂' : '📁';
                             return `<div class="item-card">
                                 <div class="row" style="justify-content:space-between;align-items:center">
                                     <div>
-                                        <b>${esc(`${'— '.repeat(depth)}${categoryName(category)}`)}</b>
+                                        <b class="category-tree-label" style="margin-left:${Math.max(0, depth) * 18}px">${icon} ${esc(categoryName(category))}</b>
                                         <div class="item-meta">
                                             <span>RU: ${esc(category.name?.ru||'')}</span>
                                             <span>EN: ${esc(category.name?.en||'')}</span>
@@ -1137,8 +1150,12 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                 `;
                 catForm.onsubmit = async (e)=>{
                     e.preventDefault();
+                    const nameRu = String(catForm.name_ru?.value || '').trim();
+                    const nameEn = String(catForm.name_en?.value || '').trim();
+                    if(!nameRu && !nameEn){ showToast(tr('fill_one_name'), 'error'); return; }
                     const res = await fetch('?api=create_category',{method:'POST',body:new FormData(catForm)});
                     const j = await res.json();
+                    if(j?.error === 'category_name_required'){ showToast(tr('fill_one_name'), 'error'); return; }
                     if(!j.ok){ showToast(apiError(j, 'request_failed'), 'error'); return; }
                     await load();
                     showToast(tr('created_ok'));
