@@ -100,7 +100,7 @@ function processUpdate(array $update): void
             return;
         }
 
-        sendMainMenu($chatId, (string) $user['lang'], false, (string) $user['first_name']);
+        sendMainMenu($chatId, (string) $user['lang'], false, (string) $user['first_name'], 0, $userId);
         return;
     }
 
@@ -136,21 +136,33 @@ function handleCallback(array $callback): void
         'purchases' => [],
     ];
 
+    $lang = (string) ($user['lang'] ?: 'ru');
+
+    if ($data === 'account:changelang') {
+        showAccountLanguageSelector($chatId, $messageId, $lang);
+        return;
+    }
+
     if (str_starts_with($data, 'lang:')) {
         $lang = substr($data, 5) === 'en' ? 'en' : 'ru';
         $user['lang'] = $lang;
         $users[$userId] = $user;
         writeJson(USERS_FILE, $users);
-        sendMainMenu($chatId, $lang, true, (string) $user['first_name'], $messageId);
+        $messageText = (string) ($message['text'] ?? $message['caption'] ?? '');
+        $isAccountLangFlow = str_contains($messageText, t('choose_lang_account', 'ru')) || str_contains($messageText, t('choose_lang_account', 'en'));
+        if ($isAccountLangFlow) {
+            showAccount($chatId, $messageId, $userId, $lang);
+            return;
+        }
+        sendMainMenu($chatId, $lang, true, (string) $user['first_name'], $messageId, $userId);
         return;
     }
 
-    $lang = (string) ($user['lang'] ?: 'ru');
     $users[$userId] = $user;
     writeJson(USERS_FILE, $users);
 
     if ($data === 'main') {
-        sendMainMenu($chatId, $lang, true, (string) $user['first_name'], $messageId);
+        sendMainMenu($chatId, $lang, true, (string) $user['first_name'], $messageId, $userId);
         return;
     }
 
@@ -200,7 +212,7 @@ function handleCallback(array $callback): void
         }
         $buttons[] = [['text' => t('btn_back', $lang), 'callback_data' => 'main']];
 
-        editMessageText($chatId, $messageId, $help, [
+        safeEditMessage($chatId, $messageId, $help, [
             'reply_markup' => json_encode(['inline_keyboard' => $buttons], JSON_UNESCAPED_UNICODE),
         ]);
         return;
@@ -221,7 +233,7 @@ function handleCallback(array $callback): void
     }
 }
 
-function sendMainMenu(int $chatId, string $lang, bool $edit = false, string $name = 'User', int $messageId = 0): void
+function sendMainMenu(int $chatId, string $lang, bool $edit = false, string $name = 'User', int $messageId = 0, string $userId = ''): void
 {
     $text = t('welcome', $lang, ['name' => $name]) . "\n\n" . t('menu', $lang);
     $markup = [
@@ -232,13 +244,40 @@ function sendMainMenu(int $chatId, string $lang, bool $edit = false, string $nam
             [['text' => t('btn_help', $lang), 'callback_data' => 'menu:help']],
         ],
     ];
+    $replyMarkup = json_encode($markup, JSON_UNESCAPED_UNICODE);
+
+    if ($userId !== '') {
+        $settings = readJson(SETTINGS_FILE);
+        $logoPath = resolveSaleFilePath((string) ($settings['logo_path'] ?? ''));
+        if ($logoPath !== null) {
+            $users = readJson(USERS_FILE);
+            $user = $users[$userId] ?? null;
+            $logoShown = (bool) ($user['logo_shown'] ?? false);
+            if (!$logoShown) {
+                $sent = false;
+                if ($edit && $messageId > 0) {
+                    $sent = sendProductPhotoCard($chatId, $messageId, $logoPath, $text, (string) $replyMarkup);
+                } else {
+                    $sent = sendPhotoWithCaption($chatId, $logoPath, $text, (string) $replyMarkup);
+                }
+                if ($sent) {
+                    if (is_array($user)) {
+                        $user['logo_shown'] = true;
+                        $users[$userId] = $user;
+                        writeJson(USERS_FILE, $users);
+                    }
+                    return;
+                }
+            }
+        }
+    }
 
     if ($edit && $messageId > 0) {
-        safeEditMessage($chatId, $messageId, $text, ['reply_markup' => json_encode($markup, JSON_UNESCAPED_UNICODE)]);
+        safeEditMessage($chatId, $messageId, $text, ['reply_markup' => $replyMarkup]);
         return;
     }
 
-    sendMessage($chatId, $text, ['reply_markup' => json_encode($markup, JSON_UNESCAPED_UNICODE)]);
+    sendMessage($chatId, $text, ['reply_markup' => $replyMarkup]);
 }
 
 function isRootCategory(array $category): bool
@@ -360,6 +399,65 @@ function sendProductPhotoCard(int $chatId, int $messageId, string $photoPath, st
     ]);
 
     return true;
+}
+
+function sendPhotoWithCaption(int $chatId, string $photoPath, string $caption, string $replyMarkup): bool
+{
+    if (BOT_TOKEN === '') {
+        return false;
+    }
+    $real = realpath($photoPath);
+    if ($real === false || !is_file($real)) {
+        return false;
+    }
+
+    $tmpHandle = tmpfile();
+    if ($tmpHandle === false) {
+        return false;
+    }
+    $meta = stream_get_meta_data($tmpHandle);
+    $tmp = (string) ($meta['uri'] ?? '');
+    if ($tmp === '' || @fwrite($tmpHandle, (string) file_get_contents($real)) === false) {
+        fclose($tmpHandle);
+        return false;
+    }
+    fflush($tmpHandle);
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime = $finfo !== false ? (string) finfo_file($finfo, $tmp) : 'image/jpeg';
+    if ($finfo !== false) {
+        finfo_close($finfo);
+    }
+    if (!str_starts_with($mime, 'image/')) {
+        $mime = 'image/jpeg';
+    }
+
+    $ch = curl_init(TELEGRAM_API . '/sendPhoto');
+    if ($ch === false) {
+        fclose($tmpHandle);
+        return false;
+    }
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => [
+            'chat_id' => $chatId,
+            'caption' => $caption,
+            'photo' => new CURLFile($tmp, $mime, basename($real)),
+            'reply_markup' => $replyMarkup,
+        ],
+        CURLOPT_TIMEOUT => 60,
+    ]);
+    $raw = curl_exec($ch);
+    $error = curl_error($ch);
+    curl_close($ch);
+    fclose($tmpHandle);
+
+    if ($error !== '') {
+        logError('sendPhoto cURL error: ' . $error);
+        return false;
+    }
+    $decoded = json_decode((string) $raw, true);
+    return is_array($decoded) && ($decoded['ok'] ?? false);
 }
 
 function showCatalog(int $chatId, int $messageId, string $lang, ?string $parentId): void
@@ -524,13 +622,13 @@ function handleBuyCallback(int $chatId, int $messageId, string $userId, string $
     }
 
     if (count($parts) !== 2) {
-        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        safeEditMessage($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
 
     $qty = (int) $parts[1];
     if ($qty <= 0) {
-        editMessageText($chatId, $messageId, t('product_not_found', $lang));
+        safeEditMessage($chatId, $messageId, t('product_not_found', $lang));
         return;
     }
 
@@ -773,11 +871,27 @@ function showAccount(int $chatId, int $messageId, string $userId, string $lang):
         'inline_keyboard' => [
             [['text' => t('btn_topup', $lang), 'callback_data' => 'account:topup']],
             [['text' => t('btn_history', $lang), 'callback_data' => 'account:history']],
+            [['text' => t('btn_changelang', $lang), 'callback_data' => 'account:changelang']],
             [['text' => t('btn_back', $lang), 'callback_data' => 'main']],
         ],
     ];
 
     safeEditMessage($chatId, $messageId, $text, ['reply_markup' => json_encode($markup, JSON_UNESCAPED_UNICODE)]);
+}
+
+function showAccountLanguageSelector(int $chatId, int $messageId, string $lang): void
+{
+    safeEditMessage($chatId, $messageId, t('choose_lang_account', $lang), [
+        'reply_markup' => json_encode([
+            'inline_keyboard' => [
+                [
+                    ['text' => '🇷🇺 Русский', 'callback_data' => 'lang:ru'],
+                    ['text' => '🇬🇧 English', 'callback_data' => 'lang:en'],
+                ],
+                [['text' => t('btn_back', $lang), 'callback_data' => 'menu:account']],
+            ],
+        ], JSON_UNESCAPED_UNICODE),
+    ]);
 }
 
 function showTopup(int $chatId, int $messageId, string $userId, string $lang): void
