@@ -368,13 +368,21 @@ if (isset($_GET['api'])) {
         if ($parentId !== '' && !isset($categories[$parentId])) {
             jsonResponse(['ok' => false, 'error' => 'bad_parent_category'], 400);
         }
+        $nameRu = trim((string) ($_POST['name_ru'] ?? ''));
+        $nameEn = trim((string) ($_POST['name_en'] ?? ''));
+        if ($nameRu === '') {
+            jsonResponse(['ok' => false, 'error' => 'name_required', 'message' => 'Название RU обязательно'], 400);
+        }
+        if ($nameEn === '') {
+            $nameEn = $nameRu;
+        }
 
         $categories[$id] = [
             'id' => $id,
             'parent_id' => $parentId !== '' ? $parentId : null,
             'name' => [
-                'ru' => trim((string) ($_POST['name_ru'] ?? '')),
-                'en' => trim((string) ($_POST['name_en'] ?? '')),
+                'ru' => $nameRu,
+                'en' => $nameEn,
             ],
             'description' => [
                 'ru' => trim((string) ($_POST['description_ru'] ?? '')),
@@ -437,10 +445,18 @@ if (isset($_GET['api'])) {
         if ($parentId !== '' && !isset($categories[$parentId])) {
             jsonResponse(['ok' => false, 'error' => 'bad_parent_category'], 400);
         }
+        $nameRu = trim((string) ($_POST['name_ru'] ?? ($categories[$id]['name']['ru'] ?? '')));
+        $nameEn = trim((string) ($_POST['name_en'] ?? ($categories[$id]['name']['en'] ?? '')));
+        if ($nameRu === '') {
+            jsonResponse(['ok' => false, 'error' => 'name_required', 'message' => 'Название RU обязательно'], 400);
+        }
+        if ($nameEn === '') {
+            $nameEn = $nameRu;
+        }
         $categories[$id]['parent_id'] = $parentId !== '' ? $parentId : null;
         $categories[$id]['name'] = [
-            'ru' => trim((string) ($_POST['name_ru'] ?? ($categories[$id]['name']['ru'] ?? ''))),
-            'en' => trim((string) ($_POST['name_en'] ?? ($categories[$id]['name']['en'] ?? ''))),
+            'ru' => $nameRu,
+            'en' => $nameEn,
         ];
         $categories[$id]['description'] = [
             'ru' => trim((string) ($_POST['description_ru'] ?? ($categories[$id]['description']['ru'] ?? ''))),
@@ -919,7 +935,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     bot_username:'Username бота', admin_username:'Username администратора', currency_code:'Код валюты', currency_symbol:'Символ валюты', referral_percent:'Процент реферального бонуса (%)', support_username:'Username саппорта', help_ru:'Текст помощи RU', help_en:'Текст помощи EN',
                     save_settings:'Сохранить настройки', settings_hint:'admin_username показывается пользователям в инструкции пополнения. support_username используется в разделе помощи.',
                     logo_uploaded:'Логотип загружен', logo_deleted:'Логотип удалён',
-                    err_prefix:'Ошибка', unauthorized:'требуется авторизация', wrong_password:'неверный пароль', category_has_products:'у категории есть товары', category_has_subcategories:'у категории есть подкатегории', category_not_found:'категория не найдена', bad_category:'категория не найдена', bad_parent_category:'родительская категория не найдена', bad_amount:'некорректная сумма', user_not_found:'пользователь не найден', no_files:'выберите файлы', no_valid_files:'нет валидных файлов', zip_create_failed:'не удалось создать архив', preview_invalid_type:'поддерживаются только изображения (jpg/png/webp/gif)', preview_upload_failed:'не удалось загрузить изображение', product_not_found:'товар не найден', bundle_not_found:'архив не найден', username_invalid_format:'username администратора некорректный', unknown_api:'неизвестный API-метод', logo_invalid_type:'поддерживаются jpg/png/webp', logo_upload_failed:'не удалось загрузить логотип', bad_webhook_url:'webhook должен начинаться с https://', bot_token_missing:'BOT_TOKEN не задан', webhook_request_failed:'не удалось отправить запрос к Telegram', bad_telegram_response:'невалидный ответ Telegram', webhook_set_failed:'не удалось установить вебхук',
+                    err_prefix:'Ошибка', unauthorized:'требуется авторизация', wrong_password:'неверный пароль', category_has_products:'у категории есть товары', category_has_subcategories:'у категории есть подкатегории', category_not_found:'категория не найдена', bad_category:'категория не найдена', bad_parent_category:'родительская категория не найдена', name_required:'Название RU обязательно', bad_amount:'некорректная сумма', user_not_found:'пользователь не найден', no_files:'выберите файлы', no_valid_files:'нет валидных файлов', zip_create_failed:'не удалось создать архив', preview_invalid_type:'поддерживаются только изображения (jpg/png/webp/gif)', preview_upload_failed:'не удалось загрузить изображение', product_not_found:'товар не найден', bundle_not_found:'архив не найден', username_invalid_format:'username администратора некорректный', unknown_api:'неизвестный API-метод', logo_invalid_type:'поддерживаются jpg/png/webp', logo_upload_failed:'не удалось загрузить логотип', bad_webhook_url:'webhook должен начинаться с https://', bot_token_missing:'BOT_TOKEN не задан', webhook_request_failed:'не удалось отправить запрос к Telegram', bad_telegram_response:'невалидный ответ Telegram', webhook_set_failed:'не удалось установить вебхук',
                     created_ok:'Создано ✅', updated_ok:'Обновлено ✅', deleted_ok:'Удалено', request_failed:'ошибка запроса', loading_failed:'ошибка загрузки данных', upload_failed:'ошибка загрузки', logout_failed:'не удалось выйти', topup_prompt:'Сумма пополнения:'
                 },
                 en: {
@@ -933,7 +949,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                     bot_username:'Bot username', admin_username:'Admin username', currency_code:'Currency code', currency_symbol:'Currency symbol', referral_percent:'Referral bonus percent (%)', support_username:'Support username', help_ru:'Help text RU', help_en:'Help text EN',
                     save_settings:'Save settings', settings_hint:'admin_username is shown in top-up instructions. support_username is used in the help section.',
                     logo_uploaded:'Logo uploaded', logo_deleted:'Logo deleted',
-                    err_prefix:'Error', unauthorized:'authorization required', wrong_password:'wrong password', category_has_products:'category has products', category_has_subcategories:'category has subcategories', category_not_found:'category not found', bad_category:'category not found', bad_parent_category:'parent category not found', bad_amount:'invalid amount', user_not_found:'user not found', no_files:'choose files', no_valid_files:'no valid files', zip_create_failed:'failed to create archive', preview_invalid_type:'only images are supported (jpg/png/webp/gif)', preview_upload_failed:'failed to upload image', product_not_found:'product not found', bundle_not_found:'archive not found', username_invalid_format:'invalid admin username', unknown_api:'unknown API method', logo_invalid_type:'only jpg/png/webp are supported', logo_upload_failed:'failed to upload logo', bad_webhook_url:'webhook must start with https://', bot_token_missing:'BOT_TOKEN is not set', webhook_request_failed:'failed to send request to Telegram', bad_telegram_response:'invalid Telegram response', webhook_set_failed:'failed to set webhook',
+                    err_prefix:'Error', unauthorized:'authorization required', wrong_password:'wrong password', category_has_products:'category has products', category_has_subcategories:'category has subcategories', category_not_found:'category not found', bad_category:'category not found', bad_parent_category:'parent category not found', name_required:'Name RU is required', bad_amount:'invalid amount', user_not_found:'user not found', no_files:'choose files', no_valid_files:'no valid files', zip_create_failed:'failed to create archive', preview_invalid_type:'only images are supported (jpg/png/webp/gif)', preview_upload_failed:'failed to upload image', product_not_found:'product not found', bundle_not_found:'archive not found', username_invalid_format:'invalid admin username', unknown_api:'unknown API method', logo_invalid_type:'only jpg/png/webp are supported', logo_upload_failed:'failed to upload logo', bad_webhook_url:'webhook must start with https://', bot_token_missing:'BOT_TOKEN is not set', webhook_request_failed:'failed to send request to Telegram', bad_telegram_response:'invalid Telegram response', webhook_set_failed:'failed to set webhook',
                     created_ok:'Created ✅', updated_ok:'Updated ✅', deleted_ok:'Deleted', request_failed:'request failed', loading_failed:'failed to load data', upload_failed:'upload failed', logout_failed:'failed to logout', topup_prompt:'Top-up amount:'
                 },
             };
@@ -1091,7 +1107,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                             </select>
                             <div></div>
                             <input name="name_ru" data-i18n-placeholder="name_ru" placeholder="${tr('name_ru')}" required>
-                            <input name="name_en" data-i18n-placeholder="name_en" placeholder="${tr('name_en')}" required>
+                            <input name="name_en" data-i18n-placeholder="name_en" placeholder="${tr('name_en')}">
                             <textarea name="description_ru" data-i18n-placeholder="description_ru" placeholder="${tr('description_ru')}"></textarea>
                             <textarea name="description_en" data-i18n-placeholder="description_en" placeholder="${tr('description_en')}"></textarea>
                             <button class="btn-accent" style="grid-column:1/-1">${tr('add_category')}</button>
@@ -1125,7 +1141,7 @@ $auth = (bool) ($_SESSION['admin_auth'] ?? false);
                                         ${rows.filter(x=>x.category.id!==category.id).map(({category:c, depth:d})=>`<option value="${esc(c.id)}" ${String(category.parent_id||'')===String(c.id)?'selected':''}>${esc(`${'— '.repeat(d)}${categoryName(c)}`)}</option>`).join('')}
                                     </select>
                                     <div></div>
-                                    <input name="name_ru" value="${esc(category.name?.ru||'')}" placeholder="${tr('name_ru')}">
+                                    <input name="name_ru" value="${esc(category.name?.ru||'')}" placeholder="${tr('name_ru')}" required>
                                     <input name="name_en" value="${esc(category.name?.en||'')}" placeholder="${tr('name_en')}">
                                     <textarea name="description_ru" placeholder="${tr('description_ru')}">${esc(category.description?.ru||'')}</textarea>
                                     <textarea name="description_en" placeholder="${tr('description_en')}">${esc(category.description?.en||'')}</textarea>

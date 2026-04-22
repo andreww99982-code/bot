@@ -313,28 +313,12 @@ function sendProductPhotoCard(int $chatId, int $messageId, string $photoPath, st
 
     $real = realpath($photoPath);
     if ($real === false || !is_file($real)) {
+        logError('sendProductPhotoCard: file not found: ' . $photoPath);
         return false;
     }
-
-    $content = @file_get_contents($real);
-    if ($content === false) {
-        return false;
-    }
-
-    $tmpHandle = tmpfile();
-    if ($tmpHandle === false) {
-        return false;
-    }
-    $meta = stream_get_meta_data($tmpHandle);
-    $tmp = (string) ($meta['uri'] ?? '');
-    if ($tmp === '' || @fwrite($tmpHandle, $content) === false) {
-        fclose($tmpHandle);
-        return false;
-    }
-    fflush($tmpHandle);
 
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
-    $mime = $finfo !== false ? (string) finfo_file($finfo, $tmp) : 'image/jpeg';
+    $mime = $finfo !== false ? (string) finfo_file($finfo, $real) : 'image/jpeg';
     if ($finfo !== false) {
         finfo_close($finfo);
     }
@@ -344,14 +328,13 @@ function sendProductPhotoCard(int $chatId, int $messageId, string $photoPath, st
 
     $ch = curl_init(TELEGRAM_API . '/sendPhoto');
     if ($ch === false) {
-        fclose($tmpHandle);
         return false;
     }
 
     $payload = [
         'chat_id' => $chatId,
         'caption' => $caption,
-        'photo' => new CURLFile($tmp, $mime, basename($real)),
+        'photo' => new CURLFile($real, $mime, basename($real)),
         'reply_markup' => $replyMarkup,
     ];
     curl_setopt_array($ch, [
@@ -363,7 +346,6 @@ function sendProductPhotoCard(int $chatId, int $messageId, string $photoPath, st
     $raw = curl_exec($ch);
     $error = curl_error($ch);
     curl_close($ch);
-    fclose($tmpHandle);
 
     if ($error !== '') {
         logError('sendPhoto cURL error: ' . $error);
@@ -391,22 +373,12 @@ function sendPhotoWithCaption(int $chatId, string $photoPath, string $caption, s
     }
     $real = realpath($photoPath);
     if ($real === false || !is_file($real)) {
+        logError('sendPhotoWithCaption: file not found: ' . $photoPath);
         return false;
     }
 
-    $tmpHandle = tmpfile();
-    if ($tmpHandle === false) {
-        return false;
-    }
-    $meta = stream_get_meta_data($tmpHandle);
-    $tmp = (string) ($meta['uri'] ?? '');
-    if ($tmp === '' || @fwrite($tmpHandle, (string) file_get_contents($real)) === false) {
-        fclose($tmpHandle);
-        return false;
-    }
-    fflush($tmpHandle);
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
-    $mime = $finfo !== false ? (string) finfo_file($finfo, $tmp) : 'image/jpeg';
+    $mime = $finfo !== false ? (string) finfo_file($finfo, $real) : 'image/jpeg';
     if ($finfo !== false) {
         finfo_close($finfo);
     }
@@ -416,7 +388,6 @@ function sendPhotoWithCaption(int $chatId, string $photoPath, string $caption, s
 
     $ch = curl_init(TELEGRAM_API . '/sendPhoto');
     if ($ch === false) {
-        fclose($tmpHandle);
         return false;
     }
     curl_setopt_array($ch, [
@@ -425,7 +396,7 @@ function sendPhotoWithCaption(int $chatId, string $photoPath, string $caption, s
         CURLOPT_POSTFIELDS => [
             'chat_id' => $chatId,
             'caption' => $caption,
-            'photo' => new CURLFile($tmp, $mime, basename($real)),
+            'photo' => new CURLFile($real, $mime, basename($real)),
             'reply_markup' => $replyMarkup,
         ],
         CURLOPT_TIMEOUT => 60,
@@ -433,14 +404,17 @@ function sendPhotoWithCaption(int $chatId, string $photoPath, string $caption, s
     $raw = curl_exec($ch);
     $error = curl_error($ch);
     curl_close($ch);
-    fclose($tmpHandle);
 
     if ($error !== '') {
-        logError('sendPhoto cURL error: ' . $error);
+        logError('sendPhotoWithCaption cURL error: ' . $error);
         return false;
     }
     $decoded = json_decode((string) $raw, true);
-    return is_array($decoded) && ($decoded['ok'] ?? false);
+    if (!is_array($decoded) || !($decoded['ok'] ?? false)) {
+        logError('sendPhotoWithCaption Telegram error: ' . (is_array($decoded) ? ($decoded['description'] ?? 'unknown') : (string) $raw));
+        return false;
+    }
+    return true;
 }
 
 function showCatalog(int $chatId, int $messageId, string $lang, ?string $parentId): void
