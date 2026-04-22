@@ -75,8 +75,9 @@ function processUpdate(array $update): void
     $text = trim((string) ($message['text'] ?? ''));
 
     if (str_starts_with($text, '/start')) {
-        if (str_starts_with($text, '/start ref_')) {
-            $referrerId = trim(substr($text, 11));
+        $refPrefix = '/start ref_';
+        if (str_starts_with($text, $refPrefix)) {
+            $referrerId = trim(substr($text, strlen($refPrefix)));
             $alreadyReferred = (string) ($user['referred_by'] ?? '') !== '';
             if (($isNewUser || !$alreadyReferred) && $referrerId !== '' && $referrerId !== $userId && isset($users[$referrerId])) {
                 $user['referred_by'] = $referrerId;
@@ -801,7 +802,12 @@ function showReferralPage(int $chatId, int $messageId, string $userId, string $l
         ? 'https://t.me/' . $botUsername . '?start=ref_' . $userId
         : 'https://t.me/НАСТРОЙТЕ_USERNAME_БОТА?start=ref_' . $userId;
 
-    $percent = rtrim(rtrim(number_format(REFERRAL_PERCENT, 2, '.', ''), '0'), '.');
+    $percent = number_format(REFERRAL_PERCENT, 2, '.', '');
+    if (substr($percent, -3) === '.00') {
+        $percent = substr($percent, 0, -3);
+    } else {
+        $percent = rtrim($percent, '0');
+    }
     $earned = formatPrice((float) ($user['referral_earned'] ?? 0.0), $settings);
     $text = t('referral_title', $lang, [
         'percent' => $percent,

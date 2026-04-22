@@ -553,10 +553,10 @@ if (isset($_GET['api'])) {
                 $users[$referrerId]['referral_earned'] = round((float) ($users[$referrerId]['referral_earned'] ?? 0) + $bonus, 2);
 
                 $refLang = ((string) ($users[$referrerId]['lang'] ?? 'ru')) === 'en' ? 'en' : 'ru';
-                $bonusText = number_format($bonus, 2, '.', '');
+                $bonusText = formatPrice($bonus, $settings);
                 $refMessage = $refLang === 'en'
-                    ? "💰 Referral bonus!\nSomeone topped up via your link.\nYou received: {$bonusText} {$symbol}"
-                    : "💰 Партнёрский бонус!\nПо вашей ссылке пополнили баланс.\nВам начислено: {$bonusText} {$symbol}";
+                    ? "💰 Referral bonus!\nSomeone topped up via your link.\nYou received: {$bonusText}"
+                    : "💰 Партнёрский бонус!\nПо вашей ссылке пополнили баланс.\nВам начислено: {$bonusText}";
                 sendTelegramMessageByBotToken($referrerId, $refMessage);
             }
         }
