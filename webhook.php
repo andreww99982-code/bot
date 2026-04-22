@@ -246,29 +246,12 @@ function sendMainMenu(int $chatId, string $lang, bool $edit = false, string $nam
     ];
     $replyMarkup = json_encode($markup, JSON_UNESCAPED_UNICODE);
 
-    if ($userId !== '') {
-        $settings = readJson(SETTINGS_FILE);
-        $logoPath = resolveSaleFilePath((string) ($settings['logo_path'] ?? ''));
-        if ($logoPath !== null) {
-            $users = readJson(USERS_FILE);
-            $user = $users[$userId] ?? null;
-            $logoShown = (bool) ($user['logo_shown'] ?? false);
-            if (!$logoShown) {
-                $sent = false;
-                if ($edit && $messageId > 0) {
-                    $sent = sendProductPhotoCard($chatId, $messageId, $logoPath, $text, (string) $replyMarkup);
-                } else {
-                    $sent = sendPhotoWithCaption($chatId, $logoPath, $text, (string) $replyMarkup);
-                }
-                if ($sent) {
-                    if (is_array($user)) {
-                        $user['logo_shown'] = true;
-                        $users[$userId] = $user;
-                        writeJson(USERS_FILE, $users);
-                    }
-                    return;
-                }
-            }
+    $settings = readJson(SETTINGS_FILE);
+    $logoPath = resolveSaleFilePath((string) ($settings['logo_path'] ?? ''));
+    if ($logoPath !== null && !$edit) {
+        $sent = sendPhotoWithCaption($chatId, $logoPath, $text, (string) $replyMarkup);
+        if ($sent) {
+            return;
         }
     }
 
