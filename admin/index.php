@@ -311,10 +311,6 @@ if (isset($_GET['api'])) {
 
     requireAuth();
 
-    if ($api === 'set_webhook' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-        setWebhookEndpoint();
-    }
-
     if ($api === 'bootstrap') {
         $users = readJson(USERS_FILE);
         $products = readJson(PRODUCTS_FILE);
